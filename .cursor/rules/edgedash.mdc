@@ -1,0 +1,91 @@
+---
+description: EdgeDash steering — architecture, hard rules, and style (see edgedash.md)
+alwaysApply: true
+---
+
+# EdgeDash Steering
+
+Persistent project guidance for every interaction in this repository.
+
+## Project
+
+**EdgeDash** is an autonomous AI career intelligence agent: a scheduled loop that fetches live job listings, scores them for fit against the user's profile, surfaces skill gaps, verifies its own output, and publishes a Streamlit dashboard.
+
+## Architecture
+
+Do not deviate from this pipeline without explicitly telling the user and getting agreement:
+
+```
+Trigger (scheduled) → Orchestrator → sub-agents (Fetcher, Scorer, GapAnalyzer) → Verifier → Storage → Dashboard (read-only)
+```
+
+| Component | Responsibility |
+|-----------|----------------|
+| **Trigger** | Starts a run on a schedule |
+| **Orchestrator** | Reads state and delegates; never fetches or scores directly |
+| **Fetcher** | One goal, one stop condition |
+| **Scorer** | One goal, one stop condition |
+| **GapAnalyzer** | One goal, one stop condition |
+| **Verifier** | Validates agent output before persistence |
+| **Storage** | Single module, thin interface (see Hard Rule 2) |
+| **Dashboard** | Read-only Streamlit view of stored data |
+
+## Hard Rules
+
+1. **Python 3.11+.** Standard library first. Add a dependency only when it genuinely saves real work — explain why before adding it.
+
+2. **Single storage module.** All storage access goes through one module with a thin interface. No other module may import `sqlite3` directly. SQLite will be swapped for hosted Postgres in week 4; that migration must be a one-file change.
+
+3. **No hardcoded user profile.** Never hardcode role, city, keywords, or skills. All user-specific values live in config.
+
+4. **No secrets in code.** Environment variables only, loaded in one place.
+
+5. **Cycle logging.** Every agent run writes a row to `cycle_log`: what ran, when, how many records touched, pass/fail, and any retry reason.
+
+6. **Fail loudly.** No bare `except: pass`. If something is wrong, surface it clearly.
+
+7. **Types and docs.** Type hints on every function signature. Docstrings only where intent is not obvious from the name.
+
+8. **File size.** Keep files under ~150 lines. Split before that becomes a problem.
+
+## Style
+
+- Small, testable functions.
+- Plain, readable Python over clever Python.
+- When asked for one module, build **one module** — do not scaffold the whole app.
+
+## Examples
+
+```python
+# BAD — storage bypass
+import sqlite3
+conn = sqlite3.connect("jobs.db")
+
+# GOOD — storage module only
+from storage import get_connection, insert_cycle_log
+```
+
+```python
+# BAD — silent failure
+try:
+    score_jobs()
+except:
+    pass
+
+# GOOD — fail loudly
+try:
+    score_jobs()
+except ScoringError as exc:
+    log_cycle_failure(run_id, reason=str(exc))
+    raise
+```
+
+```python
+# BAD — hardcoded profile
+TARGET_ROLE = "Senior Data Engineer"
+CITY = "Bangalore"
+
+# GOOD — config-driven
+from config import load_profile
+profile = load_profile()
+```

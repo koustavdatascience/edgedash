@@ -1,0 +1,26 @@
+target_role: Data Analyst
+target_city: Bengaluru
+
+keywords:
+  - data analyst
+  - SQL
+  - Python
+  - Excel
+  - Tableau
+  - Power BI
+  - dashboards
+  - reporting
+
+my_skills:
+  - SQL
+  - Python
+  - Excel
+  - data cleaning
+  - pandas
+  - Tableau
+  - data visualization
+  - stakeholder communication
+
+experience_years: 3
+db_path: data/edgedash.db
+min_fit_score: 60
