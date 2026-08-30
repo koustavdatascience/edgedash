@@ -43,6 +43,51 @@ Trigger (scheduled) → Orchestrator → sub-agents (Fetcher, Scorer, GapAnalyze
 
 8. **File size.** Keep files under ~150 lines. Split before that becomes a problem.
 
+## Network & Sources
+
+9. **Source class interface.** Every external source lives behind a Source class with a uniform interface. The Fetcher never contains source-specific parsing. Adding a source must never require editing the Fetcher.
+
+10. **Normalised job dicts.** Every Source returns a list of normalised dicts with EXACTLY these keys: `source`, `external_id`, `title`, `company`, `location`, `url`, `description`, `posted_at`, `raw`. Missing values are `None`, never empty string, never `"N/A"`.
+
+11. **Single network helper.** All network calls go through one helper with a timeout (10s default), explicit retry (2 attempts, exponential backoff), and a User-Agent header. No bare `requests.get` anywhere else in the codebase.
+
+12. **Per-source failure isolation.** A source failing must NEVER kill the cycle. Catch per-source, log the failure to `cycle_log` with status `"failed"`, continue to the next source. One dead job board must not stop the other sources.
+
+13. **Secrets via environment.** Secrets come from environment variables via a `.env` file that is gitignored. Never a literal key in code, never a key in `config.yaml`. If a key is missing, that source skips itself with a clear log line — it does not crash the cycle.
+14. **Respect the source.** Rate limit to at most 1 request per second per
+    source, set a real User-Agent, and honour any documented page limits.
+
+## Intelligence & Scoring
+
+15. All LLM calls go through one module, `edgedash/llm.py`, exposing one function.
+    The provider and model name come from config, never hardcoded. Rate limit to
+    stay inside a free tier (default 1 request per second, max 15 per minute).
+    No other file imports an LLM SDK.
+
+16. NEVER ask a model for a final score, ranking, or numeric rating. The model
+    extracts structured facts only. All scoring arithmetic is deterministic Python
+    in ONE function. The model never sees the scoring weights.
+
+17. Every model response is validated against an explicit schema before use.
+    A response that fails validation is retried once, then logged as a failure for
+    THAT listing only — it must not crash the cycle or stop the remaining
+    listings. Never `json.loads` raw model text without a validation and repair
+    path.
+
+18. Scoring is idempotent. Never re-score a listing that already has a score.
+    Select only listings WHERE score IS NULL. Cache extraction results keyed on a
+    hash of the job description so the same text is never sent to the model twice.
+
+19. Every score carries a human-readable reason GENERATED FROM THE SCORE
+    COMPONENTS by our code — never free text written by the model.
+
+20. Log the score distribution (count, min, max, mean, spread) to cycle_log on
+    every scoring run. A run where all scores fall within 10 points is a suspect
+    run and must be logged as such.
+
+21. Cap listings scored per cycle at a configurable batch size (default 25) so a
+    cost or rate-limit blowup is structurally impossible.
+
 ## Style
 
 - Small, testable functions.
@@ -81,6 +126,4 @@ TARGET_ROLE = "Senior Data Engineer"
 CITY = "Bangalore"
 
 # GOOD — config-driven
-from config import load_profile
-profile = load_profile()
 ```

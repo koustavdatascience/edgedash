@@ -1,5 +1,12 @@
 target_role: Data Analyst
-target_city: Bengaluru
+target_city: Remote
+target_seniority: mid
+score_batch_size: 25
+score_weights:
+  skill_match: 0.45
+  seniority_fit: 0.25
+  location_fit: 0.15
+  recency: 0.15
 
 keywords:
   - data analyst
@@ -23,4 +30,18 @@ my_skills:
 
 experience_years: 3
 db_path: data/edgedash.db
+db_backend: sqlite
 min_fit_score: 60
+
+sources:
+  - arbeitnow
+
+use_mock_fetcher: false
+
+# LLM Configuration (can also be set via environment variables)
+llm_provider: gemini
+llm_model: gemini-1.5-flash
+
+# Scheduler Configuration
+# Options: hourly, daily, daily_6am, weekly, or custom like "every_30_minutes", "every_2_hours"
+schedule_interval: daily_6am

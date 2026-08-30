@@ -4,48 +4,36 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import ModuleType
 
-from edgedash import storage
 from edgedash.agents.base import Agent, AgentResult
+from edgedash.agents.fetcher import Fetcher
+from edgedash.agents.gap_analyzer import GapAnalyzer
 from edgedash.agents.mock_fetcher import MockFetcher
+from edgedash.agents.scorer import Scorer
 from edgedash.config import Config
+from edgedash.storage_factory import get_storage_module, init_db
+
+try:
+    from edgedash.agents.verifier import Verifier
+    HAS_VERIFIER = True
+except ImportError:
+    HAS_VERIFIER = False
 
 
-class _ScorerPlaceholder(Agent):
-    @property
-    def name(self) -> str:
-        return "scorer"
-
-    def run(self, config: Config, storage: ModuleType) -> AgentResult:
-        return AgentResult(
-            agent=self.name,
-            status="ok",
-            records_touched=0,
-            notes="not implemented yet",
-        )
-
-
-class _GapAnalyzerPlaceholder(Agent):
-    @property
-    def name(self) -> str:
-        return "gap_analyzer"
-
-    def run(self, config: Config, storage: ModuleType) -> AgentResult:
-        return AgentResult(
-            agent=self.name,
-            status="ok",
-            records_touched=0,
-            notes="not implemented yet",
-        )
-
-
-# Registry — swap MockFetcher() for a real Fetcher on Thursday.
+# Registry — fetcher resolved per cycle from config (see _resolve_fetcher).
 AGENT_REGISTRY: dict[str, Agent] = {
-    "fetcher": MockFetcher(),
-    # PLACEHOLDER — not implemented yet
-    "scorer": _ScorerPlaceholder(),
-    # PLACEHOLDER — not implemented yet
-    "gap_analyzer": _GapAnalyzerPlaceholder(),
+    "scorer": Scorer(),
+    "gap_analyzer": GapAnalyzer(),
 }
+
+# Add verifier if available
+if HAS_VERIFIER:
+    AGENT_REGISTRY["verifier"] = Verifier()
+
+
+def _resolve_fetcher(config: Config) -> Agent:
+    if config.use_mock_fetcher:
+        return MockFetcher()
+    return Fetcher()
 
 
 @dataclass(frozen=True)
@@ -56,7 +44,10 @@ class PlannedStep:
 
 
 def run_cycle(config: Config) -> list[AgentResult]:
-    storage.init_db(config.db_path)
+    # Use storage factory to get appropriate backend
+    storage = get_storage_module(config)
+    init_db(config)
+    
     last_fetch = storage.last_fetch_time()
     unscored = storage.count_unscored()
 
@@ -67,13 +58,23 @@ def run_cycle(config: Config) -> list[AgentResult]:
     _print_plan(plan)
 
     results: list[AgentResult] = []
+    newly_scored = 0
+    
     for step in plan:
         if step.action == "skip":
             continue
-        agent = AGENT_REGISTRY[step.agent]
+        agent = (
+            _resolve_fetcher(config)
+            if step.agent == "fetcher"
+            else AGENT_REGISTRY[step.agent]
+        )
         started_at = datetime.now(timezone.utc).isoformat()
         try:
-            result = agent.run(config, storage)
+            # Pass newly_scored count to verifier if applicable
+            if step.agent == "verifier" and HAS_VERIFIER:
+                result = agent.run(config, storage, newly_scored)
+            else:
+                result = agent.run(config, storage)
         except Exception as exc:
             finished_at = datetime.now(timezone.utc).isoformat()
             result = AgentResult(
@@ -99,6 +100,10 @@ def run_cycle(config: Config) -> list[AgentResult]:
         )
         results.append(result)
         _print_agent_result(result)
+        
+        # Track newly scored listings for verifier
+        if step.agent == "scorer" and result.status == "ok":
+            newly_scored = result.records_touched
 
     _print_summary(results, storage.count_unscored())
     return results
@@ -106,23 +111,43 @@ def run_cycle(config: Config) -> list[AgentResult]:
 
 def _build_plan(unscored: int) -> list[PlannedStep]:
     scorer_reason = (
-        f"{unscored} unscored listing(s) waiting — PLACEHOLDER, not implemented yet"
+        f"{unscored} unscored listing(s) waiting — score next batch"
         if unscored > 0
-        else "no unscored listings yet — PLACEHOLDER, not implemented yet"
+        else "no unscored listings — scorer idle"
     )
-    return [
+    scorer_action = "run" if unscored > 0 else "skip"
+    
+    plan = [
         PlannedStep(
             agent="fetcher",
             action="run",
             reason="scheduled fetch — pull latest listings for configured role and city",
         ),
-        PlannedStep(agent="scorer", action="skip", reason=scorer_reason),
+        PlannedStep(agent="scorer", action=scorer_action, reason=scorer_reason),
         PlannedStep(
             agent="gap_analyzer",
-            action="skip",
-            reason="skill-gap analysis — PLACEHOLDER, not implemented yet",
+            action="run",
+            reason="analyze skill gaps across scored listings",
         ),
     ]
+    
+    # Add verifier if available - it should run after scoring to validate outputs
+    if HAS_VERIFIER:
+        verifier_action = "run" if unscored > 0 else "skip"
+        verifier_reason = (
+            f"verify {unscored} newly scored listing(s)"
+            if unscored > 0
+            else "no new listings to verify"
+        )
+        plan.append(
+            PlannedStep(
+                agent="verifier",
+                action=verifier_action,
+                reason=verifier_reason,
+            )
+        )
+    
+    return plan
 
 
 def _print_header(title: str) -> None:
