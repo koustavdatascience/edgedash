@@ -68,25 +68,28 @@ class CycleOutcome:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def run_cycle(config: Config) -> CycleOutcome:
+def run_cycle(
+    config:         Config,
+    plan:           Plan | None = None,
+    override_notes: str         = "",
+) -> CycleOutcome:
     storage = get_storage_module(config)
     init_db(config)
 
     now = datetime.now(timezone.utc)
     started_at = now.isoformat()
 
-    # 1. Read state — cheap queries only
+    # 1. Read state and build plan — unless caller already did (e.g. --force)
     state: SystemState = read_state(config, storage, now)
+    if plan is None:
+        plan = build_plan(state, config)
 
-    # 2. Build plan — pure function, no I/O
-    plan: Plan = build_plan(state, config)
-
-    # 3. Print plan before execution (rule 31)
-    _print_header("EdgeDash Cycle")
-    _print_state(state)
-    print("\nPLAN")
-    print(plan.render())
-    print()
+        # 3. Print plan before execution (rule 31) — only when orchestrator owns it
+        _print_header("EdgeDash Cycle")
+        _print_state(state)
+        print("\nPLAN")
+        print(plan.render())
+        print()
 
     # 4. Determine if there is any work at all
     runnable = plan.agents_to_run()
@@ -98,7 +101,8 @@ def run_cycle(config: Config) -> CycleOutcome:
             started_at=started_at,
             finished_at=finished_at,
         )
-        _write_summary_row(storage, outcome, plan, started_at, finished_at)
+        _write_summary_row(storage, outcome, plan, started_at, finished_at,
+                           override_notes=override_notes)
         # Rule 28: nothing_to_do is a successful outcome — exit 0, no output.
         # Printing here trains you to ignore your own logs.
         return outcome
@@ -176,7 +180,8 @@ def run_cycle(config: Config) -> CycleOutcome:
     )
 
     # Rule 33: exactly one summary row
-    _write_summary_row(storage, outcome, plan, started_at, finished_at)
+    _write_summary_row(storage, outcome, plan, started_at, finished_at,
+                       override_notes=override_notes)
     _print_summary(outcome, storage.count_unscored())
     return outcome
 
@@ -186,19 +191,22 @@ def run_cycle(config: Config) -> CycleOutcome:
 # ---------------------------------------------------------------------------
 
 def _write_summary_row(
-    storage:    ModuleType,
-    outcome:    CycleOutcome,
-    plan:       Plan,
-    started_at: str,
-    finished_at: str,
+    storage:        ModuleType,
+    outcome:        CycleOutcome,
+    plan:           Plan,
+    started_at:     str,
+    finished_at:    str,
+    override_notes: str = "",
 ) -> None:
     ran     = [t.agent_name for t in (plan.tasks if plan else []) if t.run]
     skipped = [(t.agent_name, t.reason) for t in (plan.tasks if plan else []) if not t.run]
 
-    dur_parts = [f"{a}={d:.1f}s" for a, d in outcome.durations_s.items()]
+    dur_parts  = [f"{a}={d:.1f}s" for a, d in outcome.durations_s.items()]
     skip_parts = [f"{a}({r})" for a, r in skipped]
 
     notes_parts: list[str] = [f"outcome={outcome.outcome}"]
+    if override_notes:
+        notes_parts.append(override_notes)   # visible in the log
     if ran:
         notes_parts.append(f"ran=[{', '.join(ran)}]")
     if skipped:
