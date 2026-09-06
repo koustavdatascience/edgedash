@@ -403,6 +403,39 @@ def listing_id(source: str, url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Cheap state queries — counts and MAX(timestamp) only, no full table loads
+# ---------------------------------------------------------------------------
+
+def last_scored_at() -> str | None:
+    """ISO timestamp of the most recently scored listing, or None."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT MAX(scored_at) FROM listings WHERE fit_score IS NOT NULL"
+        ).fetchone()
+    return str(row[0]) if row and row[0] else None
+
+
+def last_gap_snapshot_at() -> str | None:
+    """ISO timestamp of the most recent gap snapshot row, or None."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT MAX(computed_at) FROM gap_snapshots"
+        ).fetchone()
+    return str(row[0]) if row and row[0] else None
+
+
+def last_cycle_summary() -> dict[str, Any] | None:
+    """Most recent cycle_log row (any agent), or None if no cycles yet."""
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT agent, finished_at, status, notes "
+            "FROM cycle_log ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
 # Gap snapshot functions (rule 25 — never overwrite a previous run's rows)
 # ---------------------------------------------------------------------------
 

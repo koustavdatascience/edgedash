@@ -30,6 +30,11 @@ _DEFAULTS: dict[str, Any] = {
     "llm_model": "gemini-3.5-flash",
     "schedule_interval": "hourly",
     "skill_aliases": {},
+    "fetch_interval_hours": 6,
+    "fetch_max_pages": 5,
+    "fetch_max_listings": 200,
+    "score_max_seconds": 300,
+    "analyse_max_seconds": 60,
 }
 
 
@@ -52,6 +57,11 @@ class Config:
     llm_model: str
     schedule_interval: str
     skill_aliases: dict[str, str]
+    fetch_interval_hours: int
+    fetch_max_pages: int
+    fetch_max_listings: int
+    score_max_seconds: int
+    analyse_max_seconds: int
 
 
 def load_config(path: Path | str | None = None) -> Config:
@@ -82,6 +92,11 @@ def load_config(path: Path | str | None = None) -> Config:
         llm_model=_as_str(merged, "llm_model"),
         schedule_interval=_as_str(merged, "schedule_interval"),
         skill_aliases=_as_str_dict(merged, "skill_aliases"),
+        fetch_interval_hours=_as_int(merged, "fetch_interval_hours"),
+        fetch_max_pages=_as_int(merged, "fetch_max_pages"),
+        fetch_max_listings=_as_int(merged, "fetch_max_listings"),
+        score_max_seconds=_as_int(merged, "score_max_seconds"),
+        analyse_max_seconds=_as_int(merged, "analyse_max_seconds"),
     )
 
 

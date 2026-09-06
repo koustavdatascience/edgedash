@@ -46,6 +46,13 @@ llm_model: gemini-3.5-flash
 # Options: hourly, daily, daily_6am, weekly, or custom like "every_30_minutes", "every_2_hours"
 schedule_interval: daily_6am
 
+# Orchestration thresholds — Orchestrator uses these, agents never set their own limits (rule 29)
+fetch_interval_hours: 6      # re-fetch if last fetch was this many hours ago
+fetch_max_pages: 5            # stop fetcher after this many pages per source
+fetch_max_listings: 200       # stop fetcher after this many new listings
+score_max_seconds: 300        # stop scorer after this many seconds
+analyse_max_seconds: 60       # stop gap analyser after this many seconds
+
 # Skill alias map — THIS IS YOURS TO EDIT.
 # Adding entries is expected as you see your own data.
 # Run `python -m edgedash.skills --audit` to find aliases you are missing.
