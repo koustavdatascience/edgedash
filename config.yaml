@@ -40,7 +40,7 @@ use_mock_fetcher: false
 
 # LLM Configuration (can also be set via environment variables)
 llm_provider: gemini
-llm_model: gemini-1.5-flash
+llm_model: gemini-3.5-flash
 
 # Scheduler Configuration
 # Options: hourly, daily, daily_6am, weekly, or custom like "every_30_minutes", "every_2_hours"
