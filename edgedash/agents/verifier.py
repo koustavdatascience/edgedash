@@ -3,9 +3,13 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from types import ModuleType
+from typing import TYPE_CHECKING
 
 from edgedash.agents.base import Agent, AgentResult
 from edgedash.config import Config
+
+if TYPE_CHECKING:
+    from edgedash.planning import StopConditions
 
 
 class Verifier(Agent):
@@ -13,14 +17,16 @@ class Verifier(Agent):
     def name(self) -> str:
         return "verifier"
 
-    def run(self, config: Config, storage: ModuleType, newly_scored: int = 0) -> AgentResult:
-        """Verify data quality and validate outputs from the current cycle.
-        
-        Args:
-            config: Configuration object
-            storage: Storage module
-            newly_scored: Number of listings scored in this cycle (optional)
-        """
+    def run(
+        self,
+        config:          Config,
+        storage:         ModuleType,
+        stop_conditions: "StopConditions | None" = None,
+    ) -> AgentResult:
+        from edgedash.planning import StopConditions as _SC
+        sc = stop_conditions or _SC()
+        # max_items carries "how many listings were just scored" from the plan
+        newly_scored = sc.max_items or 0
         if newly_scored == 0:
             return AgentResult(
                 agent=self.name,

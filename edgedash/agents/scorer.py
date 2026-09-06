@@ -3,9 +3,13 @@ from __future__ import annotations
 import statistics
 from datetime import datetime, timezone
 from types import ModuleType
+from typing import TYPE_CHECKING
 
 from edgedash.agents.base import Agent, AgentResult
 from edgedash.config import Config
+
+if TYPE_CHECKING:
+    from edgedash.planning import StopConditions
 
 # No llm / network imports here — pure deterministic file imports only.
 
@@ -15,8 +19,16 @@ class Scorer(Agent):
     def name(self) -> str:
         return "scorer"
 
-    def run(self, config: Config, storage: ModuleType) -> AgentResult:
-        batch_size = getattr(config, "score_batch_size", 25)
+    def run(
+        self,
+        config:          Config,
+        storage:         ModuleType,
+        stop_conditions: "StopConditions | None" = None,
+    ) -> AgentResult:
+        from edgedash.planning import StopConditions as _SC
+        sc = stop_conditions or _SC()
+        # Orchestrator sets max_items; fall back to config for backwards compat
+        batch_size = sc.max_items if sc.max_items is not None else getattr(config, "score_batch_size", 25)
         listings = storage.get_unscored_listings(batch_size)
 
         if not listings:

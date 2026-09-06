@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from edgedash.agents.base import Agent, AgentResult
 from edgedash.config import Config
@@ -10,13 +10,24 @@ import edgedash.sources.arbeitnow  # noqa: F401 — registers sources
 from edgedash.sources.base import SOURCES
 from edgedash.storage import ListingInput, listing_id
 
+if TYPE_CHECKING:
+    from edgedash.planning import StopConditions
+
 
 class Fetcher(Agent):
     @property
     def name(self) -> str:
         return "fetcher"
 
-    def run(self, config: Config, storage: ModuleType) -> AgentResult:
+    def run(
+        self,
+        config:          Config,
+        storage:         ModuleType,
+        stop_conditions: "StopConditions | None" = None,
+    ) -> AgentResult:
+        from edgedash.planning import StopConditions as _SC
+        sc = stop_conditions or _SC()
+        max_listings = sc.max_items   # None = unlimited
         fetched_at = datetime.now(timezone.utc).isoformat()
         fail_notes: dict[str, str] = {}
         success_notes: dict[str, str] = {}
@@ -57,6 +68,8 @@ class Fetcher(Agent):
             )
 
         deduped = _dedupe_by_id(combined)
+        if max_listings is not None:
+            deduped = deduped[:max_listings]
         for source_name, listings in source_batches.items():
             source_rows = [row for row in deduped if row["source"] == source_name]
             new_count = storage.upsert_listings(source_rows)

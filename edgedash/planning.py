@@ -128,7 +128,7 @@ def build_plan(state: SystemState, config: Any) -> Plan:
     # ------------------------------------------------------------------ score
     if state.unscored_count > 0:
         tasks.append(Task(
-            agent_name      = "score",
+            agent_name      = "scorer",
             goal            = f"score up to {config.score_batch_size} unscored listings",
             stop_conditions = StopConditions(
                 max_items   = config.score_batch_size,
@@ -139,7 +139,7 @@ def build_plan(state: SystemState, config: Any) -> Plan:
         ))
     else:
         tasks.append(Task(
-            agent_name      = "score",
+            agent_name      = "scorer",
             goal            = "score unscored listings",
             stop_conditions = StopConditions(),
             run    = False,
@@ -157,7 +157,7 @@ def build_plan(state: SystemState, config: Any) -> Plan:
             else "gaps_stale=true (score newer than last snapshot)"
         )
         tasks.append(Task(
-            agent_name      = "analyse",
+            agent_name      = "gap_analyzer",
             goal            = "compute skill gaps across scored listings",
             stop_conditions = StopConditions(max_seconds=config.analyse_max_seconds),
             run    = True,
@@ -165,7 +165,7 @@ def build_plan(state: SystemState, config: Any) -> Plan:
         ))
     else:
         tasks.append(Task(
-            agent_name      = "analyse",
+            agent_name      = "gap_analyzer",
             goal            = "compute skill gaps across scored listings",
             stop_conditions = StopConditions(),
             run    = False,

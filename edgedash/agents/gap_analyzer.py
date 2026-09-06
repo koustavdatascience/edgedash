@@ -10,11 +10,14 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from edgedash.agents.base import Agent, AgentResult
 from edgedash.config import Config
 from edgedash.skills import canonical
+
+if TYPE_CHECKING:
+    from edgedash.planning import StopConditions
 
 # How many gaps to report per snapshot
 _TOP_N = 10
@@ -29,7 +32,12 @@ class GapAnalyzer(Agent):
     def name(self) -> str:
         return "gap_analyzer"
 
-    def run(self, config: Config, storage: ModuleType) -> AgentResult:  # type: ignore[override]
+    def run(
+        self,
+        config:          Config,
+        storage:         ModuleType,
+        stop_conditions: "StopConditions | None" = None,
+    ) -> AgentResult:
         # ----------------------------------------------------------------
         # 1. Load all scored listings that have extraction data
         # ----------------------------------------------------------------

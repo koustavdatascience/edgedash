@@ -75,19 +75,19 @@ class TestEverythingStale:
         assert _agent(self.plan, "fetch").run is True
 
     def test_score_runs(self):
-        assert _agent(self.plan, "score").run is True
+        assert _agent(self.plan, "scorer").run is True
 
     def test_analyse_runs(self):
-        assert _agent(self.plan, "analyse").run is True
+        assert _agent(self.plan, "gap_analyzer").run is True
 
     def test_fetch_reason_contains_hours(self):
         assert "hours_since_fetch=8.0" in _agent(self.plan, "fetch").reason
 
     def test_score_reason_contains_count(self):
-        assert "unscored_count=41" in _agent(self.plan, "score").reason
+        assert "unscored_count=41" in _agent(self.plan, "scorer").reason
 
     def test_analyse_reason_is_stale(self):
-        assert "gaps_stale=true" in _agent(self.plan, "analyse").reason
+        assert "gaps_stale=true" in _agent(self.plan, "gap_analyzer").reason
 
     def test_fetch_stop_conditions_set(self):
         sc = _agent(self.plan, "fetch").stop_conditions
@@ -95,12 +95,12 @@ class TestEverythingStale:
         assert sc.max_items   == 200
 
     def test_score_stop_conditions_set(self):
-        sc = _agent(self.plan, "score").stop_conditions
+        sc = _agent(self.plan, "scorer").stop_conditions
         assert sc.max_items   == 25
         assert sc.max_seconds == 300
 
     def test_analyse_stop_conditions_set(self):
-        sc = _agent(self.plan, "analyse").stop_conditions
+        sc = _agent(self.plan, "gap_analyzer").stop_conditions
         assert sc.max_seconds == 60
 
 
@@ -123,7 +123,7 @@ class TestNothingToDo:
     def test_all_three_present(self):
         # Skipped agents must still appear — rule 31
         names = {t.agent_name for t in self.plan.tasks}
-        assert names == {"fetch", "score", "analyse"}
+        assert names == {"fetch", "scorer", "gap_analyzer"}
 
     def test_fetch_reason_mentions_threshold(self):
         r = _agent(self.plan, "fetch").reason
@@ -131,10 +131,10 @@ class TestNothingToDo:
         assert "2.1" in r
 
     def test_score_reason_mentions_zero(self):
-        assert "unscored_count=0" in _agent(self.plan, "score").reason
+        assert "unscored_count=0" in _agent(self.plan, "scorer").reason
 
     def test_analyse_reason_up_to_date(self):
-        assert "up to date" in _agent(self.plan, "analyse").reason
+        assert "up to date" in _agent(self.plan, "gap_analyzer").reason
 
     def test_render_contains_skip_tags(self):
         rendered = self.plan.render()
@@ -162,13 +162,13 @@ class TestOnlyUnscored:
         assert _agent(self.plan, "fetch").run is False
 
     def test_score_runs(self):
-        assert _agent(self.plan, "score").run is True
+        assert _agent(self.plan, "scorer").run is True
 
     def test_analyse_skipped(self):
-        assert _agent(self.plan, "analyse").run is False
+        assert _agent(self.plan, "gap_analyzer").run is False
 
     def test_score_reason_contains_count(self):
-        assert "unscored_count=15" in _agent(self.plan, "score").reason
+        assert "unscored_count=15" in _agent(self.plan, "scorer").reason
 
     def test_render_has_one_run(self):
         rendered = self.plan.render()
@@ -193,13 +193,13 @@ class TestGapsStaleNoUnscored:
         assert _agent(self.plan, "fetch").run is False
 
     def test_score_skipped(self):
-        assert _agent(self.plan, "score").run is False
+        assert _agent(self.plan, "scorer").run is False
 
     def test_analyse_runs(self):
-        assert _agent(self.plan, "analyse").run is True
+        assert _agent(self.plan, "gap_analyzer").run is True
 
     def test_analyse_reason_is_stale(self):
-        assert "gaps_stale=true" in _agent(self.plan, "analyse").reason
+        assert "gaps_stale=true" in _agent(self.plan, "gap_analyzer").reason
 
     def test_render_has_one_run(self):
         rendered = self.plan.render()
@@ -221,7 +221,7 @@ class TestEdgeCases:
     def test_never_analysed_runs_analyse(self):
         state = _state(gaps_computed_at=None, gaps_stale=False)
         plan  = build_plan(state, _Cfg())
-        task  = _agent(plan, "analyse")
+        task  = _agent(plan, "gap_analyzer")
         assert task.run is True
         assert "null" in task.reason
 
