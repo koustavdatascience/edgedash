@@ -57,6 +57,22 @@ CREATE TABLE IF NOT EXISTS extraction_cache (
 );
 """
 
+_GAP_SNAPSHOTS_DDL = """
+CREATE TABLE IF NOT EXISTS gap_snapshots (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id      TEXT    NOT NULL,
+    computed_at TEXT    NOT NULL,
+    skill       TEXT    NOT NULL,
+    listings_blocked  INTEGER NOT NULL,
+    opportunity_cost  REAL    NOT NULL,
+    mean_score        REAL    NOT NULL,
+    top_score         INTEGER NOT NULL,
+    also_nice_to_have INTEGER NOT NULL,
+    low_confidence    INTEGER NOT NULL,
+    example_ids       TEXT    NOT NULL
+);
+"""
+
 
 class ListingInput(TypedDict):
     title: str
@@ -74,8 +90,8 @@ def init_db(path: str) -> None:
     _db_path = path
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with _connect() as conn:
-        conn.executescript(_LISTINGS_DDL + _SKILL_GAPS_DDL + _CYCLE_LOG_DDL + _EXTRACTION_CACHE_DDL)
-        # lightweight migrations for scorer columns — safe on existing DBs
+        conn.executescript(_LISTINGS_DDL + _SKILL_GAPS_DDL + _CYCLE_LOG_DDL + _EXTRACTION_CACHE_DDL + _GAP_SNAPSHOTS_DDL)
+        # lightweight migrations — safe to run on existing databases
         for ddl in (
             "ALTER TABLE listings ADD COLUMN fit_components TEXT",
             "ALTER TABLE listings ADD COLUMN scored_at TEXT",
@@ -384,3 +400,119 @@ def _connect() -> sqlite3.Connection:
 def listing_id(source: str, url: str) -> str:
     payload = f"{source}\0{url}".encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Gap snapshot functions (rule 25 — never overwrite a previous run's rows)
+# ---------------------------------------------------------------------------
+
+def write_gap_snapshot(run_id: str, computed_at: str, gaps: list[dict[str, Any]]) -> None:
+    """Insert a full gap report snapshot. Each call appends new rows — never updates."""
+    import json as _json
+
+    with _connect() as conn:
+        for gap in gaps:
+            conn.execute(
+                """
+                INSERT INTO gap_snapshots (
+                    run_id, computed_at, skill, listings_blocked,
+                    opportunity_cost, mean_score, top_score,
+                    also_nice_to_have, low_confidence, example_ids
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    computed_at,
+                    gap["skill"],
+                    gap["listings_blocked"],
+                    gap["opportunity_cost"],
+                    gap["mean_score"],
+                    gap["top_score"],
+                    gap["also_nice_to_have"],
+                    1 if gap.get("low_confidence") else 0,
+                    _json.dumps(gap["example_ids"]),
+                ),
+            )
+        conn.commit()
+
+
+def get_latest_snapshot(limit: int = 10) -> list[dict[str, Any]]:
+    """Return all rows from the most recent gap snapshot run, ranked by opportunity_cost."""
+    import json as _json
+
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        # Find the latest run_id
+        latest = conn.execute(
+            "SELECT run_id FROM gap_snapshots ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if latest is None:
+            return []
+        run_id = latest["run_id"]
+        rows = conn.execute(
+            """
+            SELECT skill, listings_blocked, opportunity_cost, mean_score,
+                   top_score, also_nice_to_have, low_confidence, example_ids,
+                   computed_at, run_id
+            FROM gap_snapshots
+            WHERE run_id = ?
+            ORDER BY opportunity_cost DESC
+            LIMIT ?
+            """,
+            (run_id, limit),
+        ).fetchall()
+
+    result = []
+    for row in rows:
+        d = dict(row)
+        d["example_ids"] = _json.loads(d["example_ids"])
+        d["low_confidence"] = bool(d["low_confidence"])
+        result.append(d)
+    return result
+
+
+def get_scored_listings_with_extractions(limit: int = 1000) -> list[dict[str, Any]]:
+    """Return scored listings joined with their extraction cache entry.
+
+    The join is done in Python (SHA-256 of description text) because
+    SQLite does not have a built-in sha256() function.
+    """
+    import hashlib as _hashlib
+    import json as _json
+
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        listings = conn.execute(
+            "SELECT id, title, company, fit_score, description "
+            "FROM listings WHERE fit_score IS NOT NULL "
+            "ORDER BY fit_score DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        cache_rows = conn.execute(
+            "SELECT description_hash, required_skills, nice_to_have "
+            "FROM extraction_cache"
+        ).fetchall()
+
+    cache = {
+        r["description_hash"]: {
+            "required_skills": _json.loads(r["required_skills"]),
+            "nice_to_have":    _json.loads(r["nice_to_have"]),
+        }
+        for r in cache_rows
+    }
+
+    result = []
+    for listing in listings:
+        desc = listing["description"] or ""
+        h = _hashlib.sha256(desc.encode("utf-8")).hexdigest()
+        if h not in cache:
+            continue  # not yet extracted — skip
+        result.append({
+            "id":              listing["id"],
+            "title":           listing["title"],
+            "company":         listing["company"],
+            "fit_score":       listing["fit_score"],
+            "required_skills": cache[h]["required_skills"],
+            "nice_to_have":    cache[h]["nice_to_have"],
+        })
+    return result

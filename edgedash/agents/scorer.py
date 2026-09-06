@@ -31,7 +31,7 @@ class Scorer(Agent):
 
         for listing in listings:
             try:
-                facts = extract(listing)
+                facts = extract(listing, config, storage)
                 result = score_listing(listing, facts, config)
                 storage.update_listing_score(
                     listing["id"], result["score"], result["reason"], result["components"]
