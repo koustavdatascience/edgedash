@@ -99,7 +99,8 @@ def run_cycle(config: Config) -> CycleOutcome:
             finished_at=finished_at,
         )
         _write_summary_row(storage, outcome, plan, started_at, finished_at)
-        print("  Nothing to do — all agents skipped.\n")
+        # Rule 28: nothing_to_do is a successful outcome — exit 0, no output.
+        # Printing here trains you to ignore your own logs.
         return outcome
 
     # 5. Execute — per rule 32: one failure does not stop the cycle
