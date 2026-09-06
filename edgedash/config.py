@@ -27,8 +27,9 @@ _DEFAULTS: dict[str, Any] = {
     "score_batch_size": 25,
     "score_weights": {"skill_match": 0.45, "seniority_fit": 0.25, "location_fit": 0.15, "recency": 0.15},
     "llm_provider": "gemini",
-    "llm_model": "gemini-1.5-flash",
+    "llm_model": "gemini-3.5-flash",
     "schedule_interval": "hourly",
+    "skill_aliases": {},
 }
 
 
@@ -50,6 +51,7 @@ class Config:
     llm_provider: str
     llm_model: str
     schedule_interval: str
+    skill_aliases: dict[str, str]
 
 
 def load_config(path: Path | str | None = None) -> Config:
@@ -79,6 +81,7 @@ def load_config(path: Path | str | None = None) -> Config:
         llm_provider=_as_str(merged, "llm_provider"),
         llm_model=_as_str(merged, "llm_model"),
         schedule_interval=_as_str(merged, "schedule_interval"),
+        skill_aliases=_as_str_dict(merged, "skill_aliases"),
     )
 
 
@@ -114,6 +117,13 @@ def _as_bool(data: dict[str, Any], key: str) -> bool:
         if lowered == "false":
             return False
     raise TypeError(f"config.yaml field '{key}' must be a boolean, got {type(value).__name__}")
+
+
+def _as_str_dict(data: dict[str, Any], key: str) -> dict[str, str]:
+    value = data.get(key, {})
+    if not isinstance(value, dict):
+        raise TypeError(f"config.yaml field '{key}' must be a mapping, got {type(value).__name__}")
+    return {str(k): str(v) for k, v in value.items()}
 
 
 def _as_score_weights(data: dict[str, Any], key: str) -> dict[str, float]:
@@ -172,7 +182,7 @@ def _parse_yaml_config(text: str) -> dict[str, Any]:
             continue
 
         if indent == 2 and dict_key is not None:
-            # nested mapping under dict_key (e.g. score_weights)
+            # nested mapping under dict_key (e.g. score_weights, skill_aliases)
             if ":" not in stripped:
                 raise ValueError(f"config.yaml line {lineno}: invalid nested line {raw_line!r}")
             k, _, v = stripped.partition(":")
@@ -180,14 +190,17 @@ def _parse_yaml_config(text: str) -> dict[str, Any]:
             v = v.strip()
             if not v:
                 raise ValueError(f"config.yaml line {lineno}: nested value missing for {k!r}")
-            parsed = _parse_scalar(v)
-            if not isinstance(parsed, (int, float)) or isinstance(parsed, bool):
-                # allow numeric strings like "0.45" — _parse_scalar returns str for floats
-                try:
-                    parsed = float(v)
-                except ValueError:
-                    raise ValueError(f"config.yaml line {lineno}: expected number for {k!r}")
-            result[dict_key][k] = float(parsed)  # type: ignore[index]
+            # score_weights values are floats; skill_aliases values are strings
+            if dict_key == "skill_aliases":
+                result[dict_key][k] = _strip_quotes(v)  # type: ignore[index]
+            else:
+                parsed = _parse_scalar(v)
+                if not isinstance(parsed, (int, float)) or isinstance(parsed, bool):
+                    try:
+                        parsed = float(v)
+                    except ValueError:
+                        raise ValueError(f"config.yaml line {lineno}: expected number for {k!r}")
+                result[dict_key][k] = float(parsed)  # type: ignore[index]
             continue
 
         if indent != 0:
@@ -204,7 +217,7 @@ def _parse_yaml_config(text: str) -> dict[str, Any]:
 
         if not raw_value:
             # decide list vs dict based on key
-            if key in ("score_weights",):
+            if key in ("score_weights", "skill_aliases"):
                 result[key] = {}
                 dict_key = key
             else:

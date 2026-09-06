@@ -45,3 +45,36 @@ llm_model: gemini-3.5-flash
 # Scheduler Configuration
 # Options: hourly, daily, daily_6am, weekly, or custom like "every_30_minutes", "every_2_hours"
 schedule_interval: daily_6am
+
+# Skill alias map — THIS IS YOURS TO EDIT.
+# Adding entries is expected as you see your own data.
+# Run `python -m edgedash.skills --audit` to find aliases you are missing.
+# Format: raw (lowercase) -> canonical form
+skill_aliases:
+  k8s: kubernetes
+  postgres: postgres
+  postgresql: postgres
+  psql: postgres
+  node: node.js
+  nodejs: node.js
+  gcp: gcp
+  google cloud: gcp
+  google cloud platform: gcp
+  ml: machine learning
+  ci/cd: ci/cd
+  ci cd: ci/cd
+  cicd: ci/cd
+  ms excel: excel
+  microsoft excel: excel
+  ms sql: sql server
+  microsoft sql server: sql server
+  mssql: sql server
+  power bi: power bi
+  powerbi: power bi
+  pbi: power bi
+  tableau desktop: tableau
+  r programming: r
+  py: python
+  looker studio: looker
+  google looker: looker
+  aws s3: s3
