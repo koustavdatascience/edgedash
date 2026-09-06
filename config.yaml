@@ -53,6 +53,16 @@ fetch_max_listings: 200       # stop fetcher after this many new listings
 score_max_seconds: 300        # stop scorer after this many seconds
 analyse_max_seconds: 60       # stop gap analyser after this many seconds
 
+# Verification thresholds (rule 39) — every threshold has a comment naming
+# the failure mode it is designed to catch.
+# Thresholds live here, never hardcoded in verification.py.
+min_score_spread: 10          # catches uniform score inflation: all scores too close together
+min_score_stdev: 5            # catches tight clustering even when spread looks OK
+max_empty_extraction_pct: 20  # catches a broken extractor returning no skills
+max_skills_per_listing: 20    # catches a model that returned a whole sentence as a skill list
+min_gap_sample: 3             # catches ranking a gap rumour computed from 1-2 listings
+max_data_age_days: 3          # catches a silent fetch failure leaving stale data in the pipeline
+
 # Skill alias map — THIS IS YOURS TO EDIT.
 # Adding entries is expected as you see your own data.
 # Run `python -m edgedash.skills --audit` to find aliases you are missing.

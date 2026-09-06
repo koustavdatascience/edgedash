@@ -115,6 +115,30 @@ Trigger (scheduled) → Orchestrator → sub-agents (Fetcher, Scorer, GapAnalyze
     3 listings and a gap computed from 90 listings must never be
     presented as equally reliable.
 
+## Verification
+
+34. The Verifier judges output plausibility and NEVER repairs, rewrites,
+    or adjusts data. It returns a verdict and a reason. The Orchestrator
+    decides what to do about a failure.
+
+35. Verification checks plausibility, never correctness. There is no
+    ground truth for a fit score. Checks assert properties of the output
+    distribution and shape, not the accuracy of any single value.
+
+36. A failed verification triggers at most ONE retry of the failing agent
+    with adjusted context. After that the cycle is marked "degraded" and
+    stops. Never retry in an unbounded loop.
+
+37. Every verdict is logged to cycle_log with the check that failed and
+    the observed value that failed it — never just "failed".
+
+38. Only cycles with a passing verdict may be read by the dashboard. A
+    failed cycle must never overwrite the last known-good data. Stale
+    verified data always beats fresh unverified data.
+
+39. Verification thresholds live in config.yaml, not in code, and every
+    threshold has a comment saying what failure it is designed to catch.
+
 ## Orchestration
 
 28. The Orchestrator reads system state and decides which agents to run.
