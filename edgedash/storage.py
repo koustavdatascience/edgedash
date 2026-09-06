@@ -436,6 +436,54 @@ def write_gap_snapshot(run_id: str, computed_at: str, gaps: list[dict[str, Any]]
         conn.commit()
 
 
+def get_snapshot_by_run_id(run_id: str) -> list[dict[str, Any]]:
+    """Return all rows for a specific run_id, ranked by opportunity_cost."""
+    import json as _json
+
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT skill, listings_blocked, opportunity_cost, mean_score,
+                   top_score, also_nice_to_have, low_confidence, example_ids,
+                   computed_at, run_id
+            FROM gap_snapshots
+            WHERE run_id = ?
+            ORDER BY opportunity_cost DESC
+            """,
+            (run_id,),
+        ).fetchall()
+
+    result = []
+    for row in rows:
+        d = dict(row)
+        d["example_ids"] = _json.loads(d["example_ids"])
+        d["low_confidence"] = bool(d["low_confidence"])
+        result.append(d)
+    return result
+
+
+def get_distinct_snapshot_runs() -> list[dict[str, Any]]:
+    """Return one row per distinct run_id, ordered by computed_at ascending.
+
+    Each row has: run_id, computed_at, skill_count.
+    Read-only — used for trend comparison.
+    """
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT run_id,
+                   MIN(computed_at) AS computed_at,
+                   COUNT(*)         AS skill_count
+            FROM gap_snapshots
+            GROUP BY run_id
+            ORDER BY computed_at ASC
+            """
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_latest_snapshot(limit: int = 10) -> list[dict[str, Any]]:
     """Return all rows from the most recent gap snapshot run, ranked by opportunity_cost."""
     import json as _json
