@@ -597,3 +597,47 @@ def get_scored_listings_with_extractions(limit: int = 1000) -> list[dict[str, An
             "nice_to_have":    cache[h]["nice_to_have"],
         })
     return result
+
+
+def get_all_listings(limit: int = 5000) -> list[dict[str, Any]]:
+    """Return all listings regardless of score, ordered by posted_at DESC.
+
+    Read-only helper for query tools (rule 46). No filtering by score.
+    """
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT id, title, company, location, url, description, source,
+                   posted_at, fetched_at, fit_score, fit_reason, fit_components
+            FROM listings
+            ORDER BY posted_at DESC, fetched_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_last_passing_cycle() -> dict[str, Any] | None:
+    """Return the most recent cycle_log row where the verifier passed.
+
+    The dashboard calls this to ensure it only reads verified data
+    (rule 38 — stale verified data beats fresh unverified data).
+
+    Returns a dict with keys: finished_at, notes, records_touched.
+    Returns None if no passing verifier run exists yet.
+    """
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT finished_at, notes, records_touched
+            FROM cycle_log
+            WHERE agent = 'verifier'
+              AND status = 'ok'
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    return dict(row) if row else None

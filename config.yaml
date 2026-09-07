@@ -52,6 +52,7 @@ fetch_max_pages: 5            # stop fetcher after this many pages per source
 fetch_max_listings: 200       # stop fetcher after this many new listings
 score_max_seconds: 300        # stop scorer after this many seconds
 analyse_max_seconds: 60       # stop gap analyser after this many seconds
+verifier_max_seconds: 60      # stop verifier after this many seconds
 
 # Verification thresholds (rule 39) — every threshold has a comment naming
 # the failure mode it is designed to catch.

@@ -26,6 +26,7 @@ class _Cfg:
     score_batch_size:     int = 25
     score_max_seconds:    int = 300
     analyse_max_seconds:  int = 60
+    verifier_max_seconds: int = 60
 
 
 _NOW = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
@@ -55,7 +56,7 @@ def _agent(plan: Plan, name: str) -> Task:
 
 
 # ---------------------------------------------------------------------------
-# Scenario 1: everything stale — all three agents RUN
+# Scenario 1: everything stale — all four agents RUN
 # ---------------------------------------------------------------------------
 
 class TestEverythingStale:
@@ -68,7 +69,7 @@ class TestEverythingStale:
         )
         self.plan = build_plan(state, _Cfg())
 
-    def test_all_three_run(self):
+    def test_all_four_run(self):
         assert all(t.run for t in self.plan.tasks)
 
     def test_fetch_runs(self):
@@ -80,6 +81,9 @@ class TestEverythingStale:
     def test_analyse_runs(self):
         assert _agent(self.plan, "gap_analyzer").run is True
 
+    def test_verifier_runs(self):
+        assert _agent(self.plan, "verifier").run is True
+
     def test_fetch_reason_contains_hours(self):
         assert "hours_since_fetch=8.0" in _agent(self.plan, "fetch").reason
 
@@ -88,6 +92,9 @@ class TestEverythingStale:
 
     def test_analyse_reason_is_stale(self):
         assert "gaps_stale=true" in _agent(self.plan, "gap_analyzer").reason
+
+    def test_verifier_reason_mentions_count(self):
+        assert "unscored_count=41" in _agent(self.plan, "verifier").reason
 
     def test_fetch_stop_conditions_set(self):
         sc = _agent(self.plan, "fetch").stop_conditions
@@ -103,27 +110,32 @@ class TestEverythingStale:
         sc = _agent(self.plan, "gap_analyzer").stop_conditions
         assert sc.max_seconds == 60
 
+    def test_verifier_stop_conditions_set(self):
+        sc = _agent(self.plan, "verifier").stop_conditions
+        assert sc.max_items   == 25   # min(41, score_batch_size=25)
+        assert sc.max_seconds == 60
+
 
 # ---------------------------------------------------------------------------
-# Scenario 2: nothing to do — all three SKIP
+# Scenario 2: nothing to do — all four SKIP
 # ---------------------------------------------------------------------------
 
 class TestNothingToDo:
     def setup_method(self):
         state = _state(
             hours_since_fetch = 2.1,   # < 6 → skip fetch
-            unscored_count    = 0,     # skip score
+            unscored_count    = 0,     # skip score + verifier
             gaps_stale        = False, # skip analyse
         )
         self.plan = build_plan(state, _Cfg())
 
-    def test_all_three_skipped(self):
+    def test_all_four_skipped(self):
         assert all(not t.run for t in self.plan.tasks)
 
-    def test_all_three_present(self):
+    def test_all_four_present(self):
         # Skipped agents must still appear — rule 31
         names = {t.agent_name for t in self.plan.tasks}
-        assert names == {"fetch", "scorer", "gap_analyzer"}
+        assert names == {"fetch", "scorer", "gap_analyzer", "verifier"}
 
     def test_fetch_reason_mentions_threshold(self):
         r = _agent(self.plan, "fetch").reason
@@ -136,9 +148,12 @@ class TestNothingToDo:
     def test_analyse_reason_up_to_date(self):
         assert "up to date" in _agent(self.plan, "gap_analyzer").reason
 
+    def test_verifier_reason_skipped(self):
+        assert "skipped" in _agent(self.plan, "verifier").reason
+
     def test_render_contains_skip_tags(self):
         rendered = self.plan.render()
-        assert rendered.count("[SKIP]") == 3
+        assert rendered.count("[SKIP]") == 4
 
     def test_stop_conditions_are_na(self):
         for task in self.plan.tasks:
@@ -172,7 +187,8 @@ class TestOnlyUnscored:
 
     def test_render_has_one_run(self):
         rendered = self.plan.render()
-        assert rendered.count("[RUN ]") == 1
+        # scorer + verifier both run; fetch + gap_analyzer skip
+        assert rendered.count("[RUN ]") == 2
         assert rendered.count("[SKIP]") == 2
 
 
@@ -201,9 +217,15 @@ class TestGapsStaleNoUnscored:
     def test_analyse_reason_is_stale(self):
         assert "gaps_stale=true" in _agent(self.plan, "gap_analyzer").reason
 
+    def test_verifier_skipped(self):
+        # no scoring this cycle → verifier has nothing to check
+        assert _agent(self.plan, "verifier").run is False
+
     def test_render_has_one_run(self):
         rendered = self.plan.render()
+        # only gap_analyzer runs; fetch, scorer, verifier all skip
         assert rendered.count("[RUN ]") == 1
+        assert rendered.count("[SKIP]") == 3
 
 
 # ---------------------------------------------------------------------------
@@ -236,12 +258,12 @@ class TestEdgeCases:
         plan  = build_plan(state, _Cfg(fetch_interval_hours=6))
         assert _agent(plan, "fetch").run is False
 
-    def test_plan_always_has_three_tasks(self):
+    def test_plan_always_has_four_tasks(self):
         for unscored, stale, hours in [(0, False, 1), (5, True, 10), (0, True, 0.1)]:
             state = _state(unscored_count=unscored, gaps_stale=stale,
                            hours_since_fetch=hours)
             plan  = build_plan(state, _Cfg())
-            assert len(plan.tasks) == 3
+            assert len(plan.tasks) == 4
 
     def test_render_is_string(self):
         state = _state()

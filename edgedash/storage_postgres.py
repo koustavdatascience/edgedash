@@ -435,3 +435,45 @@ def listing_id(source: str, url: str) -> str:
     """Generate stable listing ID from source and URL."""
     payload = f"{source}\0{url}".encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def get_all_listings(limit: int = 5000) -> list[dict[str, Any]]:
+    """Return all listings regardless of score, ordered by posted_at DESC."""
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, title, company, location, url, description, source,
+                       posted_at, fetched_at, fit_score, fit_reason, fit_components
+                FROM listings
+                ORDER BY posted_at DESC, fetched_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+
+def get_last_passing_cycle() -> dict[str, Any] | None:
+    """Return the most recent cycle_log row where the verifier passed.
+
+    The dashboard calls this to ensure it only reads verified data
+    (rule 38 — stale verified data beats fresh unverified data).
+
+    Returns a dict with keys: finished_at, notes, records_touched.
+    Returns None if no passing verifier run exists yet.
+    """
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT finished_at, notes, records_touched
+                FROM cycle_log
+                WHERE agent = 'verifier'
+                  AND status = 'ok'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            )
+            row = cur.fetchone()
+    return dict(row) if row else None

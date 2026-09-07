@@ -29,6 +29,9 @@ class Scorer(Agent):
         sc = stop_conditions or _SC()
         # Orchestrator sets max_items; fall back to config for backwards compat
         batch_size = sc.max_items if sc.max_items is not None else getattr(config, "score_batch_size", 25)
+        # widen_spread=True: retry hint from orchestrator after a tight-spread
+        # verification failure. Doubles skill_match weight to force more separation.
+        widen_spread = sc.widen_spread
         listings = storage.get_unscored_listings(batch_size)
 
         if not listings:
@@ -37,6 +40,19 @@ class Scorer(Agent):
         from edgedash.agents.extractor import extract
         from edgedash.scoring import score_listing
 
+        # Build effective config — if widen_spread, amplify skill_match weight
+        # so that high-match listings score distinctly higher than low-match ones.
+        # All four weights are renormalised to sum to 1.0.
+        if widen_spread:
+            import dataclasses
+            base_w = config.score_weights
+            amplified = {**base_w, "skill_match": base_w["skill_match"] * 2.0}
+            total_w = sum(amplified.values())
+            normed = {k: v / total_w for k, v in amplified.items()}
+            effective_config = dataclasses.replace(config, score_weights=normed)
+        else:
+            effective_config = config
+
         scored = 0
         failed = 0
         scores: list[int] = []
@@ -44,7 +60,7 @@ class Scorer(Agent):
         for listing in listings:
             try:
                 facts = extract(listing, config, storage)
-                result = score_listing(listing, facts, config)
+                result = score_listing(listing, facts, effective_config)
                 storage.update_listing_score(
                     listing["id"], result["score"], result["reason"], result["components"]
                 )

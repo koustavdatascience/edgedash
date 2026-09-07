@@ -163,6 +163,34 @@ Trigger (scheduled) → Orchestrator → sub-agents (Fetcher, Scorer, GapAnalyze
 33. Every cycle writes exactly one summary row: what ran, what was
     skipped, why, duration per agent, and the outcome.
 
+## Natural Language Queries
+
+40. NEVER generate SQL from a model. No text-to-SQL, ever, in any form.
+    The model selects from a fixed registry of parameterised query
+    functions that I wrote. It never composes a query.
+
+41. Every query tool is read-only, parameterised, and takes typed
+    parameters that are validated and clamped to a safe range before
+    execution. A model-supplied parameter is untrusted input.
+
+42. The model appears exactly twice per question: once to ROUTE (pick a
+    tool and its parameters) and once to PHRASE (turn returned rows into
+    prose). It never touches the database in either call.
+
+43. The phrasing call may use ONLY the numbers present in the rows it was
+    given. It must not estimate, extrapolate, add outside context, or
+    infer a value that is not in the data. If the rows are empty it must
+    say so plainly.
+
+44. Every answer displays the underlying rows alongside it. No prose
+    answer appears without the data that produced it.
+
+45. If no tool matches the question, say so and list what CAN be asked.
+    Never guess at the closest tool and never answer from general
+    knowledge.
+
+46. Query tools read from the last passing cycle only, per rule 38.
+
 ## Style
 
 - Small, testable functions.

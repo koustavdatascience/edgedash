@@ -17,9 +17,10 @@ from edgedash.agents.gap_analyzer import GapAnalyzer
 from edgedash.agents.mock_fetcher import MockFetcher
 from edgedash.agents.scorer import Scorer
 from edgedash.config import Config
-from edgedash.planning import Plan, StopConditions, Task, build_plan
+from edgedash.planning import Plan, Task, build_plan
 from edgedash.state import SystemState, read_state
 from edgedash.storage_factory import get_storage_module, init_db
+from edgedash.verification import Verdict
 
 try:
     from edgedash.agents.verifier import Verifier
@@ -111,7 +112,6 @@ def run_cycle(
     results: list[AgentResult]   = []
     durations: dict[str, float]  = {}
     any_failed                   = False
-    newly_scored                 = 0   # passed forward to verifier via stop_conditions
 
     for task in plan.tasks:
         if not task.run:
@@ -119,19 +119,10 @@ def run_cycle(
 
         agent = _resolve_agent(task.agent_name, config)
 
-        # Thread verifier's "how many were just scored" through stop_conditions
-        sc = task.stop_conditions
-        if task.agent_name == "verifier" and newly_scored > 0:
-            from edgedash.planning import StopConditions as _SC
-            sc = _SC(
-                max_items   = newly_scored,
-                max_seconds = task.stop_conditions.max_seconds,
-            )
-
         t0 = time.monotonic()
         agent_started = datetime.now(timezone.utc).isoformat()
         try:
-            result = agent.run(config, storage, sc)
+            result = agent.run(config, storage, task.stop_conditions)
         except Exception as exc:
             # Rule 32: log, continue, mark partial
             agent_finished = datetime.now(timezone.utc).isoformat()
@@ -163,13 +154,23 @@ def run_cycle(
         results.append(result)
         _print_agent_result(result, elapsed)
 
-        # Track scored count for verifier stop_conditions
-        if task.agent_name == "scorer":
-            newly_scored = result.records_touched
-
     finished_at = datetime.now(timezone.utc).isoformat()
     outcome_str = "partial" if any_failed else "complete"
 
+    # ------------------------------------------------------------------
+    # Rule 36: run verifier; on fail retry the offending agent ONCE only
+    # ------------------------------------------------------------------
+    verifier_result, retry_count, degraded = _run_verification(
+        config, storage, plan, results, durations
+    )
+    if verifier_result is not None:
+        results.append(verifier_result)
+    if degraded:
+        outcome_str = "degraded"
+    elif any_failed:
+        outcome_str = "partial"
+
+    finished_at = datetime.now(timezone.utc).isoformat()
     outcome = CycleOutcome(
         outcome    = outcome_str,
         plan       = plan,
@@ -180,10 +181,157 @@ def run_cycle(
     )
 
     # Rule 33: exactly one summary row
+    extra_notes = ""
+    if retry_count:
+        extra_notes = f"verification_retries={retry_count}"
     _write_summary_row(storage, outcome, plan, started_at, finished_at,
-                       override_notes=override_notes)
+                       override_notes=" | ".join(filter(None, [override_notes, extra_notes])))
     _print_summary(outcome, storage.count_unscored())
     return outcome
+
+
+# ---------------------------------------------------------------------------
+# Rule 36 — verifier + at-most-one retry
+# ---------------------------------------------------------------------------
+
+# Maps a failing check name to the agent that produced the data it checks.
+_CHECK_TO_AGENT: dict[str, str] = {
+    "score_spread":       "scorer",
+    "extraction_sanity":  "scorer",   # extractor runs inside scorer
+    "gap_sample_size":    "gap_analyzer",
+    "freshness":          "fetch",
+}
+
+
+def _run_verification(
+    config:   Config,
+    storage:  ModuleType,
+    plan:     "Plan",
+    results:  list[AgentResult],
+    durations: dict[str, float],
+) -> tuple[AgentResult | None, int, bool]:
+    """Run verifier once; on failure retry the offending agent + re-verify.
+
+    Returns (verifier_result, retry_count, degraded).
+    - verifier_result: the FINAL verifier AgentResult (None if no scoring ran)
+    - retry_count: 0 or 1
+    - degraded: True if second verification also failed
+    """
+    # Only verify if scorer actually ran this cycle
+    verifier_task = next(
+        (t for t in plan.tasks if t.agent_name == "verifier" and t.run), None
+    )
+    if verifier_task is None:
+        return None, 0, False
+
+    verifier = _resolve_agent("verifier", config)
+
+    # --- first verification pass ---
+    v_result = _run_one_agent(verifier, "verifier", verifier_task.stop_conditions,
+                               config, storage, results, durations)
+
+    verdict = v_result.extra.get("verdict")
+    if verdict is None or verdict.passed:
+        return v_result, 0, False
+
+    # --- verification failed — attempt ONE retry of the offending agent ---
+    print(f"\n  [VERIFY FAIL] {v_result.notes}")
+    failed_check_names = [r.name for r in verdict.failed_checks]
+    print(f"  [RETRY] failing checks: {', '.join(failed_check_names)}")
+
+    # Determine which agent to retry (first failing check wins)
+    retry_agent_name = _CHECK_TO_AGENT.get(verdict.failed_checks[0].name)
+    retry_task = next(
+        (t for t in plan.tasks if t.agent_name == retry_agent_name and t.run), None
+    )
+
+    if retry_task is None:
+        # Failing check maps to an agent that didn't run this cycle — can't retry
+        print(f"  [RETRY] agent '{retry_agent_name}' did not run this cycle — marking degraded")
+        _log_degraded(storage, v_result.notes)
+        return v_result, 0, True
+
+    # Build adjusted stop_conditions for the retry
+    retry_sc = _adjusted_stop_conditions(retry_task, verdict)
+    print(f"  [RETRY] re-running {retry_agent_name} with {retry_sc.render()}")
+
+    retry_agent = _resolve_agent(retry_agent_name, config)
+    _run_one_agent(retry_agent, retry_agent_name, retry_sc,
+                   config, storage, results, durations)
+
+    # --- second verification pass (final — rule 36: at most ONE retry) ---
+    v_result2 = _run_one_agent(verifier, "verifier", verifier_task.stop_conditions,
+                                config, storage, results, durations)
+
+    verdict2 = v_result2.extra.get("verdict")
+    if verdict2 is None or verdict2.passed:
+        return v_result2, 1, False
+
+    # Still failing after retry — mark degraded, stop
+    print(f"\n  [DEGRADED] verification still failing after retry: {v_result2.notes}")
+    _log_degraded(storage, v_result2.notes)
+    return v_result2, 1, True
+
+
+def _adjusted_stop_conditions(task: "Task", verdict: "Verdict") -> "StopConditions":
+    """Return stop_conditions adjusted for the specific failure mode."""
+    from edgedash.planning import StopConditions as _SC
+    from edgedash.verification import Verdict as _Verdict
+
+    failing_names = {r.name for r in verdict.failed_checks}
+
+    if "score_spread" in failing_names:
+        # Widen spread: scorer will amplify skill_match weight so high-fit
+        # listings score distinctly higher than low-fit ones.
+        return _SC(
+            max_items    = task.stop_conditions.max_items,
+            max_seconds  = task.stop_conditions.max_seconds,
+            widen_spread = True,
+        )
+
+    # Default: re-run with same conditions
+    return task.stop_conditions
+
+
+def _run_one_agent(
+    agent:           "Agent",
+    name:            str,
+    stop_conditions: "StopConditions",
+    config:          Config,
+    storage:         ModuleType,
+    results:         list[AgentResult],
+    durations:       dict[str, float],
+) -> AgentResult:
+    """Run a single agent, log result, append to results/durations."""
+    t0 = time.monotonic()
+    agent_started = datetime.now(timezone.utc).isoformat()
+    try:
+        result = agent.run(config, storage, stop_conditions)
+    except Exception as exc:
+        agent_finished = datetime.now(timezone.utc).isoformat()
+        elapsed = time.monotonic() - t0
+        result = AgentResult(agent=name, status="failed",
+                             records_touched=0, notes=str(exc))
+        storage.log_cycle(name, agent_started, agent_finished, 0, "failed", str(exc))
+        results.append(result)
+        durations[name] = round(elapsed, 2)
+        _print_agent_result(result, elapsed)
+        return result
+
+    agent_finished = datetime.now(timezone.utc).isoformat()
+    elapsed = time.monotonic() - t0
+    durations[name] = round(elapsed, 2)
+    storage.log_cycle(name, agent_started, agent_finished,
+                      result.records_touched, result.status, result.notes)
+    results.append(result)
+    _print_agent_result(result, elapsed)
+    return result
+
+
+def _log_degraded(storage: ModuleType, reason: str) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    storage.log_cycle("orchestrator", now, now, 0, "degraded",
+                      f"cycle degraded after verification retry: {reason}")
 
 
 # ---------------------------------------------------------------------------

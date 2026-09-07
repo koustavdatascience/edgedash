@@ -35,6 +35,7 @@ _DEFAULTS: dict[str, Any] = {
     "fetch_max_listings": 200,
     "score_max_seconds": 300,
     "analyse_max_seconds": 60,
+    "verifier_max_seconds": 60,
     "min_score_spread": 10,
     "min_score_stdev": 5,
     "max_empty_extraction_pct": 20,
@@ -68,6 +69,7 @@ class Config:
     fetch_max_listings: int
     score_max_seconds: int
     analyse_max_seconds: int
+    verifier_max_seconds: int
     min_score_spread: int
     min_score_stdev: int
     max_empty_extraction_pct: int
@@ -109,6 +111,7 @@ def load_config(path: Path | str | None = None) -> Config:
         fetch_max_listings=_as_int(merged, "fetch_max_listings"),
         score_max_seconds=_as_int(merged, "score_max_seconds"),
         analyse_max_seconds=_as_int(merged, "analyse_max_seconds"),
+        verifier_max_seconds=_as_int(merged, "verifier_max_seconds"),
         min_score_spread=_as_int(merged, "min_score_spread"),
         min_score_stdev=_as_int(merged, "min_score_stdev"),
         max_empty_extraction_pct=_as_int(merged, "max_empty_extraction_pct"),

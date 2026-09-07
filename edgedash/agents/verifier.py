@@ -1,12 +1,20 @@
+"""Verifier agent — judges output plausibility, never repairs data (rule 34).
+
+Reads the current cycle's scores, extracted facts, gap snapshot, and
+latest fetch time from storage.  Calls run_all_checks (deterministic
+Python, no LLM) and returns an AgentResult carrying the Verdict.
+
+Writes NO data other than logging the verdict to cycle_log.
+"""
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from types import ModuleType
 from typing import TYPE_CHECKING
 
 from edgedash.agents.base import Agent, AgentResult
 from edgedash.config import Config
+from edgedash.verification import run_all_checks
 
 if TYPE_CHECKING:
     from edgedash.planning import StopConditions
@@ -25,111 +33,68 @@ class Verifier(Agent):
     ) -> AgentResult:
         from edgedash.planning import StopConditions as _SC
         sc = stop_conditions or _SC()
-        # max_items carries "how many listings were just scored" from the plan
-        newly_scored = sc.max_items or 0
-        if newly_scored == 0:
+        # max_items = how many recently-scored listings to check
+        limit = sc.max_items or 0
+
+        if limit == 0:
             return AgentResult(
                 agent=self.name,
                 status="ok",
                 records_touched=0,
-                notes="no new listings to verify"
+                notes="no new listings to verify",
             )
-        
-        # Get recently scored listings for verification
-        recent_listings = storage.get_scored_listings_with_components(newly_scored)
-        
-        if not recent_listings:
-            return AgentResult(
-                agent=self.name,
-                status="ok",
-                records_touched=0,
-                notes="no scored listings found for verification"
-            )
-        
-        verified = 0
-        issues = []
-        
-        for listing in recent_listings:
-            listing_issues = self._verify_listing(listing, config)
-            if listing_issues:
-                issues.extend([f"{listing.get('id', '?')[:8]}: {issue}" for issue in listing_issues])
-            else:
-                verified += 1
-        
-        # Verify score distribution
-        distribution_issues = self._verify_score_distribution(recent_listings)
-        if distribution_issues:
-            issues.extend(distribution_issues)
-        
-        # Build status and notes
-        if not issues:
-            status = "ok"
-            notes = f"verified {verified} listing(s), no issues found"
-        else:
-            status = "warning"
-            notes = f"verified {verified} listing(s), {len(issues)} issue(s): {'; '.join(issues[:3])}"
-            if len(issues) > 3:
-                notes += f" (and {len(issues) - 3} more)"
-        
-        return AgentResult(
-            agent=self.name,
-            status=status,
-            records_touched=verified,
-            notes=notes
+
+        now = datetime.now(timezone.utc)
+
+        # ------------------------------------------------------------------
+        # Gather data from storage (reads only — rule 34)
+        # ------------------------------------------------------------------
+        scored_listings = storage.get_scored_listings_with_components(limit)
+        scores: list[int] = [
+            int(r["fit_score"])
+            for r in scored_listings
+            if r.get("fit_score") is not None
+        ]
+
+        facts_list = storage.get_scored_listings_with_extractions(limit)
+
+        # Latest gap snapshot (list[dict] with 'listings_blocked' etc.)
+        gaps = storage.get_latest_snapshot(limit=10)
+
+        latest_fetch_at = storage.last_fetch_time()
+
+        # ------------------------------------------------------------------
+        # Run all checks (pure functions — no LLM, no clock inside)
+        # ------------------------------------------------------------------
+        verdict, all_results = run_all_checks(
+            scores          = scores,
+            facts_list      = facts_list,
+            gaps            = gaps,
+            latest_fetch_at = latest_fetch_at,
+            config          = config,
+            now             = now,
         )
-    
-    def _verify_listing(self, listing: dict, config: Config) -> list[str]:
-        """Verify a single listing for data quality issues."""
-        issues = []
-        
-        # Check required fields
-        required_fields = ["id", "title", "company", "location", "url", "description", "source"]
-        for field in required_fields:
-            if not listing.get(field):
-                issues.append(f"missing {field}")
-        
-        # Check score is valid
-        score = listing.get("fit_score")
-        if score is not None:
-            if not isinstance(score, (int, float)) or score < 0 or score > 100:
-                issues.append(f"invalid score {score}")
-        
-        # Check fit_components is valid JSON
-        components = listing.get("fit_components")
-        if components:
-            if isinstance(components, str):
-                try:
-                    json.loads(components)
-                except json.JSONDecodeError:
-                    issues.append("invalid fit_components JSON")
-            elif not isinstance(components, dict):
-                issues.append("fit_components not dict or JSON string")
-        
-        # Check reason field exists if score exists
-        if score is not None and not listing.get("fit_reason"):
-            issues.append("missing fit_reason")
-        
-        return issues
-    
-    def _verify_score_distribution(self, listings: list[dict]) -> list[str]:
-        """Verify score distribution for anomalies."""
-        if not listings:
-            return []
-        
-        scores = [listing.get("fit_score") for listing in listings if listing.get("fit_score") is not None]
-        
-        if not scores:
-            return ["no valid scores found"]
-        
-        # Check for suspiciously uniform scores (all within 10 points)
-        score_range = max(scores) - min(scores)
-        if score_range < 10 and len(scores) > 1:
-            return [f"suspicious score distribution: range {score_range}"]
-        
-        # Check for all scores being extreme (all < 20 or all > 80)
-        if all(s < 20 for s in scores):
-            return ["all scores extremely low (< 20)"]
-        if all(s > 80 for s in scores):
-            return ["all scores extremely high (> 80)"]
-        
-        return []
+
+        # ------------------------------------------------------------------
+        # Build AgentResult notes (rule 37 — name the check and observed value)
+        # ------------------------------------------------------------------
+        if verdict.passed:
+            status = "ok"
+            notes  = f"VERDICT: pass — {verdict.summary}"
+        else:
+            failed_detail = "; ".join(
+                f"{r.name} observed {r.observed} (threshold {r.threshold})"
+                for r in verdict.failed_checks
+            )
+            status = "failed"
+            notes  = f"VERDICT: fail — {failed_detail}"
+
+        return AgentResult(
+            agent           = self.name,
+            status          = status,
+            records_touched = len(scores),
+            notes           = notes,
+            # Attach verdict so the Orchestrator can inspect it without
+            # re-parsing the notes string.
+            extra           = {"verdict": verdict, "all_results": all_results},
+        )

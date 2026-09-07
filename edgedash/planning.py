@@ -24,15 +24,17 @@ from edgedash.state import SystemState
 
 @dataclass(frozen=True)
 class StopConditions:
-    max_items:   int | None = None   # max listings / gaps to process
-    max_pages:   int | None = None   # fetcher pages
-    max_seconds: int | None = None   # wall-clock budget
+    max_items:    int | None = None   # max listings / gaps to process
+    max_pages:    int | None = None   # fetcher pages
+    max_seconds:  int | None = None   # wall-clock budget
+    widen_spread: bool       = False  # hint to scorer: reduce mean-regression
 
     def render(self) -> str:
         parts = []
-        if self.max_items   is not None: parts.append(f"max_items={self.max_items}")
-        if self.max_pages   is not None: parts.append(f"max_pages={self.max_pages}")
-        if self.max_seconds is not None: parts.append(f"max_seconds={self.max_seconds}")
+        if self.max_items    is not None: parts.append(f"max_items={self.max_items}")
+        if self.max_pages    is not None: parts.append(f"max_pages={self.max_pages}")
+        if self.max_seconds  is not None: parts.append(f"max_seconds={self.max_seconds}")
+        if self.widen_spread:             parts.append("widen_spread=true")
         return ", ".join(parts) if parts else "n/a"
 
 
@@ -170,6 +172,31 @@ def build_plan(state: SystemState, config: Any) -> Plan:
             stop_conditions = StopConditions(),
             run    = False,
             reason = "skipped: gaps up to date",
+        ))
+
+    # --------------------------------------------------------------- verify
+    # Verifier runs whenever the scorer ran — max_items is the number of
+    # listings that will need checking (capped by score_batch_size).
+    # The Orchestrator never touches this: the plan carries the limit (rule 29).
+    items_to_verify = min(state.unscored_count, config.score_batch_size)
+    if state.unscored_count > 0:
+        tasks.append(Task(
+            agent_name      = "verifier",
+            goal            = f"verify the {items_to_verify} listing(s) just scored",
+            stop_conditions = StopConditions(
+                max_items   = items_to_verify,
+                max_seconds = config.verifier_max_seconds,
+            ),
+            run    = True,
+            reason = f"unscored_count={state.unscored_count} (scorer will run)",
+        ))
+    else:
+        tasks.append(Task(
+            agent_name      = "verifier",
+            goal            = "verify scored listings",
+            stop_conditions = StopConditions(),
+            run    = False,
+            reason = "skipped: no scoring this cycle",
         ))
 
     return Plan(tasks=tasks)

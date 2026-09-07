@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import ModuleType
+from typing import TYPE_CHECKING
 
 from edgedash.agents.base import Agent, AgentResult
 from edgedash.config import Config
 from edgedash.storage import ListingInput
+
+if TYPE_CHECKING:
+    from edgedash.planning import StopConditions
 
 _SOURCE = "mock"
 _STABLE_SUFFIXES = ("flipkart-da", "swiggy-da", "razorpay-sr-da", "cred-da")
@@ -16,9 +20,20 @@ class MockFetcher(Agent):
     def name(self) -> str:
         return "fetcher"
 
-    def run(self, config: Config, storage: ModuleType) -> AgentResult:
+    def run(
+        self,
+        config:          Config,
+        storage:         ModuleType,
+        stop_conditions: "StopConditions | None" = None,
+    ) -> AgentResult:
+        from edgedash.planning import StopConditions as _SC
+        sc = stop_conditions or _SC()
+        max_listings = sc.max_items  # None = unlimited
+
         fetched_at = datetime.now(timezone.utc).isoformat()
         rows = _build_listings(config, fetched_at)
+        if max_listings is not None:
+            rows = rows[:max_listings]
         new_count = storage.upsert_listings(rows)
         duplicate_count = len(rows) - new_count
         notes = (
