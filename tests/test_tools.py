@@ -39,9 +39,6 @@ def temp_db():
     st.init_db(tmp)
 
     now = datetime.now(timezone.utc)
-    # Passing verifier cycle (rule 46 gate)
-    st.log_cycle("verifier", now.isoformat(), now.isoformat(), 0, "ok", "VERDICT: pass — all checks passed")
-
     # 4 listings: 3 recent, 1 old
     rows = [
         {
@@ -157,6 +154,14 @@ def temp_db():
 
     GapAnalyzer().run(cfg, st, StopConditions())
 
+    # The verifier boundary comes last: query tools must only expose data that
+    # existed when this cycle passed (rule 46).
+    passed_at = datetime.now(timezone.utc).isoformat()
+    st.log_cycle(
+        "verifier", passed_at, passed_at, 0, "ok",
+        "VERDICT: pass — all checks passed",
+    )
+
     yield tmp, st, cfg
 
     # Cleanup (Windows may lock — ignore)
@@ -244,6 +249,10 @@ class TestCanonicalSkillOrEmpty:
         storage, cfg = mock_storage
         result = _canonical_skill_or_empty(storage, cfg, "")
         assert result is None
+
+    def test_non_string_returns_none(self, mock_storage):
+        storage, cfg = mock_storage
+        assert _canonical_skill_or_empty(storage, cfg, 123) is None
 
 
 # ---------------------------------------------------------------------------
@@ -660,3 +669,42 @@ class TestRegistry:
         props = TOOLS["trend"]["parameters"]["properties"]
         assert props["weeks"]["minimum"] == 1
         assert props["weeks"]["maximum"] == 12
+
+
+class TestPassingCycleBoundary:
+    def test_data_after_last_pass_is_hidden(self, mock_storage):
+        storage, cfg = mock_storage
+        import edgedash.query.tools as tools
+
+        future = datetime.now(timezone.utc) + timedelta(days=1)
+        storage.upsert_listings([{
+            "title": "Future listing",
+            "company": "FutureCo",
+            "location": "Remote",
+            "url": "https://future.example/job",
+            "description": "Future-only skill",
+            "source": "test",
+            "posted_at": future.isoformat(),
+            "fetched_at": future.isoformat(),
+        }])
+        storage.write_gap_snapshot(
+            "future-run", future.isoformat(), [{
+                "skill": "future-only",
+                "listings_blocked": 99,
+                "opportunity_cost": 99.0,
+                "mean_score": 99.0,
+                "top_score": 99,
+                "also_nice_to_have": 0,
+                "low_confidence": False,
+                "example_ids": [],
+            }],
+        )
+
+        original = tools._get_storage_and_config
+        tools._get_storage_and_config = lambda: (storage, cfg)
+        try:
+            assert listing_count()["rows"][0]["total_listings"] == 4
+            assert all(row["company"] != "FutureCo" for row in companies_hiring(90)["rows"])
+            assert all(row["skill"] != "future-only" for row in top_gaps(25)["rows"])
+        finally:
+            tools._get_storage_and_config = original

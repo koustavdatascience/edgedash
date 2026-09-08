@@ -24,7 +24,6 @@ Rule 2: all reads go through the storage module. No direct sqlite3.
 """
 from __future__ import annotations
 
-import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -114,15 +113,18 @@ def _get_storage_and_config():
     return storage, config
 
 
-def _has_passing_cycle(storage: Any) -> bool:
-    """True if at least one verifier cycle passed (rule 46 gate)."""
+def _last_passing_cycle(storage: Any) -> dict[str, Any] | None:
+    """Return the verified-cycle boundary used by every query tool."""
     try:
-        return storage.get_last_passing_cycle() is not None
+        cycle = storage.get_last_passing_cycle()
+        if not cycle or _parse_timestamp(cycle.get("finished_at")) is None:
+            return None
+        return cycle
     except Exception:
-        return False
+        return None
 
 
-def _parse_posted_at(raw: Any) -> datetime | None:
+def _parse_timestamp(raw: Any) -> datetime | None:
     """Parse listing posted_at / fetched_at to tz-aware datetime, or None."""
     if raw is None:
         return None
@@ -151,6 +153,90 @@ def _parse_posted_at(raw: Any) -> datetime | None:
         except ValueError:
             return None
     return None
+
+
+def _as_of(raw: Any, boundary: datetime) -> bool:
+    """True when a timestamp is absent (legacy row) or not after boundary."""
+    parsed = _parse_timestamp(raw)
+    return parsed is None or parsed <= boundary
+
+
+def _verified_listings(
+    storage: Any, cycle: dict[str, Any], limit: int = 5000
+) -> list[dict[str, Any]]:
+    """Return listings exactly as they were known at the last passing cycle.
+
+    Listings fetched after the boundary are excluded. A score written after the
+    boundary is treated as not-yet-scored. Rows predating the ``scored_at``
+    migration remain usable because their missing timestamp is legacy data.
+    """
+    boundary = _parse_timestamp(cycle.get("finished_at"))
+    if boundary is None:
+        return []
+
+    verified: list[dict[str, Any]] = []
+    for raw in _all_listings(storage, limit=limit):
+        if not _as_of(raw.get("fetched_at"), boundary):
+            continue
+        row = dict(raw)
+        if row.get("fit_score") is not None and not _as_of(row.get("scored_at"), boundary):
+            row["fit_score"] = None
+            row["fit_reason"] = None
+            row["fit_components"] = None
+        verified.append(row)
+    return verified
+
+
+def _verified_facts(
+    storage: Any, cycle: dict[str, Any], listing_ids: set[str]
+) -> list[dict[str, Any]]:
+    """Return extracted facts belonging to verified, scored listings only."""
+    boundary = _parse_timestamp(cycle.get("finished_at"))
+    if boundary is None:
+        return []
+    try:
+        facts = storage.get_scored_listings_with_extractions(limit=5000)
+    except Exception:
+        return []
+    return [
+        dict(row)
+        for row in facts
+        if row.get("id") in listing_ids
+        and _as_of(row.get("scored_at"), boundary)
+        and _as_of(row.get("extracted_at"), boundary)
+    ]
+
+
+def _snapshot_runs_as_of(
+    storage: Any, cycle: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Return gap-snapshot runs up to the verified-cycle boundary."""
+    boundary = _parse_timestamp(cycle.get("finished_at"))
+    if boundary is None:
+        return []
+    try:
+        runs = storage.get_distinct_snapshot_runs()
+    except Exception:
+        return []
+    return [
+        dict(run)
+        for run in runs
+        if (ts := _parse_timestamp(run.get("computed_at"))) is not None
+        and ts <= boundary
+    ]
+
+
+def _latest_snapshot_as_of(
+    storage: Any, cycle: dict[str, Any], limit: int
+) -> list[dict[str, Any]]:
+    runs = _snapshot_runs_as_of(storage, cycle)
+    if not runs:
+        return []
+    latest = max(runs, key=lambda run: _parse_timestamp(run["computed_at"]))
+    try:
+        return storage.get_snapshot_by_run_id(latest["run_id"])[:limit]
+    except Exception:
+        return []
 
 
 def _all_listings(storage: Any, limit: int = 5000) -> list[dict[str, Any]]:
@@ -230,21 +316,23 @@ def companies_hiring(days: int = 7) -> dict[str, Any]:
     days = _clamp_int(days, 1, 90, 7)
     storage, _ = _get_storage_and_config()
 
-    if not _has_passing_cycle(storage):
+    cycle = _last_passing_cycle(storage)
+    if cycle is None:
         return {"rows": [], "summary": "no verified data yet — no passing cycle"}
 
-    listings = _all_listings(storage, limit=5000)
+    listings = _verified_listings(storage, cycle, limit=5000)
     if not listings:
         return {"rows": [], "summary": f"0 listings in the last {days} days"}
 
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=days)
+    boundary = _parse_timestamp(cycle["finished_at"])
+    assert boundary is not None
+    cutoff = boundary - timedelta(days=days)
 
     matched: list[dict[str, Any]] = []
     for lst in listings:
         # Prefer posted_at, fall back to fetched_at
         raw_ts = lst.get("posted_at") or lst.get("fetched_at")
-        dt = _parse_posted_at(raw_ts)
+        dt = _parse_timestamp(raw_ts)
         if dt is None:
             continue
         if dt >= cutoff:
@@ -279,7 +367,12 @@ def companies_hiring(days: int = 7) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _canonical_skill_or_empty(storage: Any, config: Any, skill: str) -> str | None:
+def _canonical_skill_or_empty(
+    storage: Any,
+    config: Any,
+    skill: Any,
+    facts: list[dict[str, Any]] | None = None,
+) -> str | None:
     """Canonicalise *skill* via alias map; return None if not present in DB.
 
     The skill is canonicalised through edgedash.skills.canonical, then checked
@@ -287,53 +380,54 @@ def _canonical_skill_or_empty(storage: Any, config: Any, skill: str) -> str | No
     the extraction_cache. If absent, returns None — caller returns empty rows
     rather than raising (rule 41: unknown skill returns empty, never error).
     """
+    if not isinstance(skill, str):
+        return None
     canon = canonical(skill, config.skill_aliases)
     if not canon:
         return None
-    # Check presence in DB (extraction_cache)
-    try:
-        conn = storage.get_connection_with_row_factory()
-        cur = conn.execute(
-            "SELECT 1 FROM extraction_cache WHERE required_skills LIKE ? OR nice_to_have LIKE ? LIMIT 1",
-            (f'%"{canon}"%', f'%"{canon}"%'),
-        )
-        if cur.fetchone() is None:
-            return None
-    except Exception:
-        # If we can't check, be conservative and allow it through
-        pass
-    return canon
+    if facts is None:
+        try:
+            facts = storage.get_scored_listings_with_extractions(limit=5000)
+        except Exception:
+            facts = []
+    present = {
+        canonical(str(raw), config.skill_aliases)
+        for row in facts
+        for raw in (row.get("required_skills") or []) + (row.get("nice_to_have") or [])
+    }
+    return canon if canon in present else None
 
 
-def _get_skill_stats(storage: Any) -> tuple[set[str], dict[str, int], dict[str, int]]:
+def _get_skill_stats(
+    storage: Any,
+    config: Any,
+    facts: list[dict[str, Any]],
+) -> tuple[set[str], dict[str, int], dict[str, int]]:
     """Return (all_skills_set, required_counts, nice_counts) from extraction_cache.
 
     Reads via storage module, no raw SQL in tools.py.
     """
-    import json as _json
-
     all_skills: set[str] = set()
-    required_counts: dict[str, int] = {}
-    nice_counts: dict[str, int] = {}
+    required_counts: dict[str, int] = Counter()
+    nice_counts: dict[str, int] = Counter()
 
-    try:
-        conn = storage.get_connection_with_row_factory()
-        rows = conn.execute(
-            "SELECT required_skills, nice_to_have FROM extraction_cache"
-        ).fetchall()
-        for row in rows:
-            for col_name, col_data in [("required_skills", required_counts), ("nice_to_have", nice_counts)]:
-                try:
-                    skills = _json.loads(row[col_name]) if row[col_name] else []
-                    for s in skills:
-                        s = str(s).strip()
-                        if s:
-                            all_skills.add(s)
-                            col_data[s] = col_data.get(s, 0) + 1
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    for row in facts:
+        required = {
+            canonical(str(raw), config.skill_aliases)
+            for raw in row.get("required_skills") or []
+        }
+        nice = {
+            canonical(str(raw), config.skill_aliases)
+            for raw in row.get("nice_to_have") or []
+        }
+        required.discard("")
+        nice.discard("")
+        all_skills.update(required)
+        all_skills.update(nice)
+        for skill_name in required:
+            required_counts[skill_name] += 1
+        for skill_name in nice:
+            nice_counts[skill_name] += 1
 
     return all_skills, required_counts, nice_counts
 
@@ -380,13 +474,22 @@ def best_matches(n: int = 10) -> dict[str, Any]:
     n = _clamp_int(n, 1, 25, 10)
     storage, _ = _get_storage_and_config()
 
-    if not _has_passing_cycle(storage):
+    cycle = _last_passing_cycle(storage)
+    if cycle is None:
         return {"rows": [], "summary": "no verified data yet — no passing cycle"}
 
-    try:
-        rows = storage.get_listings(limit=n, min_score=0)
-    except Exception:
-        rows = []
+    scored = [
+        row for row in _verified_listings(storage, cycle)
+        if row.get("fit_score") is not None
+    ]
+    scored.sort(
+        key=lambda row: (
+            -int(row.get("fit_score") or 0),
+            str(row.get("title") or "").lower(),
+            str(row.get("id") or ""),
+        )
+    )
+    rows = scored[:n]
 
     out_rows = [
         {
@@ -403,7 +506,7 @@ def best_matches(n: int = 10) -> dict[str, Any]:
 
     summary = (
         f"top {len(out_rows)} match{'es' if len(out_rows) != 1 else ''} "
-        f"from {len(out_rows)} scored listing{'s' if len(out_rows) != 1 else ''}"
+        f"from {len(scored)} scored listing{'s' if len(scored) != 1 else ''}"
     )
     return {"rows": out_rows, "summary": summary}
 
@@ -452,13 +555,11 @@ def top_gaps(n: int = 5) -> dict[str, Any]:
     n = _clamp_int(n, 1, 25, 5)
     storage, _ = _get_storage_and_config()
 
-    if not _has_passing_cycle(storage):
+    cycle = _last_passing_cycle(storage)
+    if cycle is None:
         return {"rows": [], "summary": "no verified data yet — no passing cycle"}
 
-    try:
-        gaps = storage.get_latest_snapshot(limit=n)
-    except Exception:
-        gaps = []
+    gaps = _latest_snapshot_as_of(storage, cycle, limit=n)
 
     out_rows = [
         {
@@ -524,36 +625,34 @@ def gap_detail(skill: str) -> dict[str, Any]:
     """
     storage, config = _get_storage_and_config()
 
-    if not _has_passing_cycle(storage):
+    cycle = _last_passing_cycle(storage)
+    if cycle is None:
         return {"rows": [], "summary": "no verified data yet — no passing cycle"}
 
-    canon = _canonical_skill_or_empty(storage, config, skill)
+    listings = _verified_listings(storage, cycle)
+    scored_by_id = {
+        row["id"]: row
+        for row in listings
+        if row.get("id") and row.get("fit_score") is not None
+    }
+    facts = _verified_facts(storage, cycle, set(scored_by_id))
+    canon = _canonical_skill_or_empty(storage, config, skill, facts)
     if canon is None:
         return {"rows": [], "summary": f"skill '{skill}' not found in database (after canonicalisation)"}
 
-    # Get latest gap snapshot for this skill to find example_ids
-    try:
-        gaps = storage.get_latest_snapshot(limit=25)
-    except Exception:
-        gaps = []
+    my_skills = {canonical(raw, config.skill_aliases) for raw in config.my_skills}
+    if canon in my_skills:
+        return {"rows": [], "summary": f"'{canon}' is already in the configured skill profile"}
 
-    example_ids: set[str] = set()
-    for g in gaps:
-        if g.get("skill") == canon:
-            example_ids.update(g.get("example_ids") or [])
-            break
-
-    if not example_ids:
-        return {"rows": [], "summary": f"no listings blocked by '{canon}' in latest snapshot"}
-
-    # Fetch the full listing details for those IDs
-    try:
-        listings = storage.get_listings(limit=100, min_score=0)
-    except Exception:
-        listings = []
-
-    id_to_listing = {r.get("id"): r for r in listings if r.get("id")}
-    matched = [id_to_listing[eid] for eid in example_ids if eid in id_to_listing]
+    blocked_ids = {
+        row.get("id")
+        for row in facts
+        if canon in {
+            canonical(str(raw), config.skill_aliases)
+            for raw in row.get("required_skills") or []
+        }
+    }
+    matched = [scored_by_id[lid] for lid in blocked_ids if lid in scored_by_id]
 
     out_rows = [
         {
@@ -565,7 +664,14 @@ def gap_detail(skill: str) -> dict[str, Any]:
             "url": r.get("url") or "",
             "location": r.get("location") or "",
         }
-        for r in sorted(matched, key=lambda x: int(x.get("fit_score") or 0), reverse=True)
+        for r in sorted(
+            matched,
+            key=lambda x: (
+                -int(x.get("fit_score") or 0),
+                str(x.get("title") or "").lower(),
+                str(x.get("id") or ""),
+            ),
+        )
     ]
 
     summary = (
@@ -620,25 +726,24 @@ def trend(weeks: int = 3) -> dict[str, Any]:
     weeks = _clamp_int(weeks, 1, 12, 3)
     storage, _ = _get_storage_and_config()
 
-    if not _has_passing_cycle(storage):
+    cycle = _last_passing_cycle(storage)
+    if cycle is None:
         return {"rows": [], "summary": "no verified data yet — no passing cycle"}
 
-    try:
-        runs = storage.get_distinct_snapshot_runs()
-    except Exception:
-        runs = []
+    runs = _snapshot_runs_as_of(storage, cycle)
 
     if not runs:
         return {"rows": [], "summary": "no gap snapshots available"}
 
     # Filter runs within the last N weeks
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(weeks=weeks)
+    boundary = _parse_timestamp(cycle["finished_at"])
+    assert boundary is not None
+    cutoff = boundary - timedelta(weeks=weeks)
     recent_runs = [
         r for r in runs
         if r.get("computed_at")
-        and _parse_posted_at(r["computed_at"])
-        and _parse_posted_at(r["computed_at"]) >= cutoff
+        and _parse_timestamp(r["computed_at"])
+        and _parse_timestamp(r["computed_at"]) >= cutoff
     ]
 
     if len(recent_runs) < 2:
@@ -713,19 +818,22 @@ def listing_count() -> dict[str, Any]:
     """
     storage, _ = _get_storage_and_config()
 
-    if not _has_passing_cycle(storage):
+    cycle = _last_passing_cycle(storage)
+    if cycle is None:
         return {"rows": [], "summary": "no verified data yet — no passing cycle"}
 
-    try:
-        stats = storage.get_stats()
-    except Exception:
-        return {"rows": [], "summary": "failed to load stats from storage"}
+    listings = _verified_listings(storage, cycle)
+    scored_rows = [row for row in listings if row.get("fit_score") is not None]
+    fetch_times = [
+        ts for row in listings
+        if (ts := _parse_timestamp(row.get("fetched_at"))) is not None
+    ]
 
     row = {
-        "total_listings": int(stats.get("total_listings") or 0),
-        "scored_listings": int(stats.get("scored_listings") or 0),
-        "unscored_listings": int(stats.get("unscored_listings") or 0),
-        "newest_listing_date": stats.get("last_fetch") or "never",
+        "total_listings": len(listings),
+        "scored_listings": len(scored_rows),
+        "unscored_listings": len(listings) - len(scored_rows),
+        "newest_listing_date": max(fetch_times).isoformat() if fetch_times else "never",
     }
 
     total = row["total_listings"]
@@ -782,35 +890,23 @@ def skill_demand(skill: str) -> dict[str, Any]:
     """
     storage, config = _get_storage_and_config()
 
-    if not _has_passing_cycle(storage):
+    cycle = _last_passing_cycle(storage)
+    if cycle is None:
         return {"rows": [], "summary": "no verified data yet — no passing cycle"}
 
-    canon = _canonical_skill_or_empty(storage, config, skill)
+    listings = _verified_listings(storage, cycle)
+    verified_ids = {
+        row["id"] for row in listings
+        if row.get("id") and row.get("fit_score") is not None
+    }
+    facts = _verified_facts(storage, cycle, verified_ids)
+    canon = _canonical_skill_or_empty(storage, config, skill, facts)
     if canon is None:
         return {"rows": [], "summary": f"skill '{skill}' not found in database (after canonicalisation)"}
 
-    # Get counts from DB
-    required_count = 0
-    nice_count = 0
-    try:
-        import json as _json
-        conn = storage.get_connection_with_row_factory()
-        rows = conn.execute(
-            "SELECT required_skills, nice_to_have FROM extraction_cache"
-        ).fetchall()
-        for row in rows:
-            for col, target in [("required_skills", "req"), ("nice_to_have", "nice")]:
-                try:
-                    skills = _json.loads(row[col]) if row[col] else []
-                    if canon in [str(s).strip() for s in skills]:
-                        if target == "req":
-                            required_count += 1
-                        else:
-                            nice_count += 1
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    _, required_counts, nice_counts = _get_skill_stats(storage, config, facts)
+    required_count = required_counts.get(canon, 0)
+    nice_count = nice_counts.get(canon, 0)
 
     row = {
         "skill": canon,

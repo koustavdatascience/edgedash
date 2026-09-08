@@ -64,6 +64,9 @@ max_skills_per_listing: 20    # catches a model that returned a whole sentence a
 min_gap_sample: 3             # catches ranking a gap rumour computed from 1-2 listings
 max_data_age_days: 3          # catches a silent fetch failure leaving stale data in the pipeline
 
+# Natural-language query guard (rule 35 app guards) — max questions per day
+daily_question_cap: 200
+
 # Skill alias map — THIS IS YOURS TO EDIT.
 # Adding entries is expected as you see your own data.
 # Run `python -m edgedash.skills --audit` to find aliases you are missing.

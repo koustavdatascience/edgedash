@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -73,6 +74,18 @@ CREATE TABLE IF NOT EXISTS gap_snapshots (
 );
 """
 
+_QUERY_LOG_DDL = """
+CREATE TABLE IF NOT EXISTS query_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    question TEXT NOT NULL,
+    tool TEXT NULL,
+    params TEXT NULL,
+    answerable INTEGER NOT NULL,
+    duration REAL NOT NULL,
+    created_at TEXT NOT NULL
+);
+"""
+
 
 class ListingInput(TypedDict):
     title: str
@@ -90,7 +103,7 @@ def init_db(path: str) -> None:
     _db_path = path
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with _connect() as conn:
-        conn.executescript(_LISTINGS_DDL + _SKILL_GAPS_DDL + _CYCLE_LOG_DDL + _EXTRACTION_CACHE_DDL + _GAP_SNAPSHOTS_DDL)
+        conn.executescript(_LISTINGS_DDL + _SKILL_GAPS_DDL + _CYCLE_LOG_DDL + _EXTRACTION_CACHE_DDL + _GAP_SNAPSHOTS_DDL + _QUERY_LOG_DDL)
         # lightweight migrations — safe to run on existing databases
         for ddl in (
             "ALTER TABLE listings ADD COLUMN fit_components TEXT",
@@ -167,13 +180,42 @@ def log_cycle(
         conn.commit()
 
 
+def log_query(
+    question: str,
+    tool: str | None,
+    params: dict[str, Any] | None,
+    answerable: bool,
+    duration: float,
+) -> None:
+    """Append one entry to the query_log table (rules 42-45)."""
+    import json as _json
+
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO query_log (question, tool, params, answerable, duration, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                question,
+                tool,
+                _json.dumps(params) if params is not None else None,
+                1 if answerable else 0,
+                duration,
+                time.strftime("%Y-%m-%dT%H:%M:%S"),
+            ),
+        )
+        conn.commit()
+
+
 def get_listings(limit: int, min_score: int) -> list[dict[str, Any]]:
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
             SELECT id, title, company, location, url, description, source,
-                   posted_at, fetched_at, fit_score, fit_reason, fit_components
+                   posted_at, fetched_at, fit_score, fit_reason, fit_components,
+                   scored_at
             FROM listings
             WHERE fit_score IS NOT NULL AND fit_score >= ?
             ORDER BY fit_score DESC, fetched_at DESC
@@ -564,13 +606,13 @@ def get_scored_listings_with_extractions(limit: int = 1000) -> list[dict[str, An
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
         listings = conn.execute(
-            "SELECT id, title, company, fit_score, description "
+            "SELECT id, title, company, fit_score, description, scored_at "
             "FROM listings WHERE fit_score IS NOT NULL "
             "ORDER BY fit_score DESC LIMIT ?",
             (limit,),
         ).fetchall()
         cache_rows = conn.execute(
-            "SELECT description_hash, required_skills, nice_to_have "
+            "SELECT description_hash, required_skills, nice_to_have, created_at "
             "FROM extraction_cache"
         ).fetchall()
 
@@ -578,6 +620,7 @@ def get_scored_listings_with_extractions(limit: int = 1000) -> list[dict[str, An
         r["description_hash"]: {
             "required_skills": _json.loads(r["required_skills"]),
             "nice_to_have":    _json.loads(r["nice_to_have"]),
+            "created_at":      r["created_at"],
         }
         for r in cache_rows
     }
@@ -593,8 +636,10 @@ def get_scored_listings_with_extractions(limit: int = 1000) -> list[dict[str, An
             "title":           listing["title"],
             "company":         listing["company"],
             "fit_score":       listing["fit_score"],
+            "scored_at":       listing["scored_at"],
             "required_skills": cache[h]["required_skills"],
             "nice_to_have":    cache[h]["nice_to_have"],
+            "extracted_at":    cache[h]["created_at"],
         })
     return result
 
@@ -609,7 +654,8 @@ def get_all_listings(limit: int = 5000) -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT id, title, company, location, url, description, source,
-                   posted_at, fetched_at, fit_score, fit_reason, fit_components
+                   posted_at, fetched_at, fit_score, fit_reason, fit_components,
+                   scored_at
             FROM listings
             ORDER BY posted_at DESC, fetched_at DESC
             LIMIT ?

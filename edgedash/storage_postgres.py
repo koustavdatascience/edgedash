@@ -81,6 +81,34 @@ CREATE TABLE IF NOT EXISTS extraction_cache (
 );
 """
 
+_GAP_SNAPSHOTS_DDL = """
+CREATE TABLE IF NOT EXISTS gap_snapshots (
+    id SERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    computed_at TEXT NOT NULL,
+    skill TEXT NOT NULL,
+    listings_blocked INTEGER NOT NULL,
+    opportunity_cost DOUBLE PRECISION NOT NULL,
+    mean_score DOUBLE PRECISION NOT NULL,
+    top_score INTEGER NOT NULL,
+    also_nice_to_have INTEGER NOT NULL,
+    low_confidence INTEGER NOT NULL,
+    example_ids TEXT NOT NULL
+);
+"""
+
+_QUERY_LOG_DDL = """
+CREATE TABLE IF NOT EXISTS query_log (
+    id SERIAL PRIMARY KEY,
+    question TEXT NOT NULL,
+    tool TEXT NULL,
+    params TEXT NULL,
+    answerable INTEGER NOT NULL,
+    duration DOUBLE PRECISION NOT NULL,
+    created_at TEXT NOT NULL
+);
+"""
+
 
 class ListingInput(TypedDict):
     title: str
@@ -119,6 +147,8 @@ def init_db(db_url: str | None = None, **connection_params: Any) -> None:
             cur.execute(_SKILL_GAPS_DDL)
             cur.execute(_CYCLE_LOG_DDL)
             cur.execute(_EXTRACTION_CACHE_DDL)
+            cur.execute(_GAP_SNAPSHOTS_DDL)
+            cur.execute(_QUERY_LOG_DDL)
             
             # Lightweight migrations for scorer columns
             for ddl in (
@@ -201,6 +231,34 @@ def log_cycle(
         conn.commit()
 
 
+def log_query(
+    question: str,
+    tool: str | None,
+    params: dict[str, Any] | None,
+    answerable: bool,
+    duration: float,
+) -> None:
+    """Append one entry to the query_log table (rules 42-45)."""
+    _check_postgres_available()
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO query_log (question, tool, params, answerable, duration, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    question,
+                    tool,
+                    json.dumps(params) if params is not None else None,
+                    1 if answerable else 0,
+                    duration,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+        conn.commit()
+
+
 def get_listings(limit: int, min_score: int) -> list[dict[str, Any]]:
     """Get listings with scores above threshold."""
     with _connect() as conn:
@@ -208,7 +266,8 @@ def get_listings(limit: int, min_score: int) -> list[dict[str, Any]]:
             cur.execute(
                 """
                 SELECT id, title, company, location, url, description, source,
-                       posted_at, fetched_at, fit_score, fit_reason, fit_components
+                       posted_at, fetched_at, fit_score, fit_reason, fit_components,
+                       scored_at
                 FROM listings
                 WHERE fit_score IS NOT NULL AND fit_score >= %s
                 ORDER BY fit_score DESC, fetched_at DESC
@@ -348,7 +407,8 @@ def get_scored_listings_with_components(limit: int) -> list[dict[str, Any]]:
             cur.execute(
                 """
                 SELECT id, title, company, location, url, description, source,
-                       posted_at, fetched_at, fit_score, fit_reason, fit_components
+                       posted_at, fetched_at, fit_score, fit_reason, fit_components,
+                       scored_at
                 FROM listings
                 WHERE fit_score IS NOT NULL AND fit_components IS NOT NULL
                 ORDER BY fetched_at DESC
@@ -437,6 +497,126 @@ def listing_id(source: str, url: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def write_gap_snapshot(run_id: str, computed_at: str, gaps: list[dict[str, Any]]) -> None:
+    """Append a complete gap snapshot without overwriting earlier runs."""
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            for gap in gaps:
+                cur.execute(
+                    """
+                    INSERT INTO gap_snapshots (
+                        run_id, computed_at, skill, listings_blocked,
+                        opportunity_cost, mean_score, top_score,
+                        also_nice_to_have, low_confidence, example_ids
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        run_id, computed_at, gap["skill"], gap["listings_blocked"],
+                        gap["opportunity_cost"], gap["mean_score"], gap["top_score"],
+                        gap["also_nice_to_have"], 1 if gap.get("low_confidence") else 0,
+                        json.dumps(gap["example_ids"]),
+                    ),
+                )
+        conn.commit()
+
+
+def get_snapshot_by_run_id(run_id: str) -> list[dict[str, Any]]:
+    """Return one gap snapshot, ranked by opportunity cost."""
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT skill, listings_blocked, opportunity_cost, mean_score,
+                       top_score, also_nice_to_have, low_confidence, example_ids,
+                       computed_at, run_id
+                FROM gap_snapshots
+                WHERE run_id = %s
+                ORDER BY opportunity_cost DESC
+                """,
+                (run_id,),
+            )
+            rows = [dict(row) for row in cur.fetchall()]
+    for row in rows:
+        row["example_ids"] = json.loads(row["example_ids"])
+        row["low_confidence"] = bool(row["low_confidence"])
+    return rows
+
+
+def get_distinct_snapshot_runs() -> list[dict[str, Any]]:
+    """Return snapshot metadata ordered from oldest to newest."""
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT run_id, MIN(computed_at) AS computed_at,
+                       COUNT(*) AS skill_count
+                FROM gap_snapshots
+                GROUP BY run_id
+                ORDER BY MIN(computed_at) ASC
+                """
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+
+def get_latest_snapshot(limit: int = 10) -> list[dict[str, Any]]:
+    """Return rows from the most recently inserted snapshot."""
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT run_id FROM gap_snapshots ORDER BY id DESC LIMIT 1")
+            latest = cur.fetchone()
+    return get_snapshot_by_run_id(latest[0])[:limit] if latest else []
+
+
+def get_scored_listings_with_extractions(limit: int = 1000) -> list[dict[str, Any]]:
+    """Return scored listings joined to cached extraction facts."""
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, title, company, fit_score, description, scored_at
+                FROM listings
+                WHERE fit_score IS NOT NULL
+                ORDER BY fit_score DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            listings = [dict(row) for row in cur.fetchall()]
+            cur.execute(
+                """
+                SELECT description_hash, required_skills, nice_to_have, created_at
+                FROM extraction_cache
+                """
+            )
+            cache_rows = [dict(row) for row in cur.fetchall()]
+
+    cache = {
+        row["description_hash"]: {
+            "required_skills": json.loads(row["required_skills"]),
+            "nice_to_have": json.loads(row["nice_to_have"]),
+            "created_at": row["created_at"],
+        }
+        for row in cache_rows
+    }
+    result = []
+    for listing in listings:
+        desc_hash = hashlib.sha256((listing.get("description") or "").encode("utf-8")).hexdigest()
+        facts = cache.get(desc_hash)
+        if facts is None:
+            continue
+        result.append({
+            "id": listing["id"],
+            "title": listing["title"],
+            "company": listing["company"],
+            "fit_score": listing["fit_score"],
+            "scored_at": listing["scored_at"],
+            "required_skills": facts["required_skills"],
+            "nice_to_have": facts["nice_to_have"],
+            "extracted_at": facts["created_at"],
+        })
+    return result
+
+
 def get_all_listings(limit: int = 5000) -> list[dict[str, Any]]:
     """Return all listings regardless of score, ordered by posted_at DESC."""
     with _connect() as conn:
@@ -444,7 +624,8 @@ def get_all_listings(limit: int = 5000) -> list[dict[str, Any]]:
             cur.execute(
                 """
                 SELECT id, title, company, location, url, description, source,
-                       posted_at, fetched_at, fit_score, fit_reason, fit_components
+                       posted_at, fetched_at, fit_score, fit_reason, fit_components,
+                       scored_at
                 FROM listings
                 ORDER BY posted_at DESC, fetched_at DESC
                 LIMIT %s

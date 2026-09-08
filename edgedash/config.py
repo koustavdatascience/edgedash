@@ -42,6 +42,7 @@ _DEFAULTS: dict[str, Any] = {
     "max_skills_per_listing": 20,
     "min_gap_sample": 3,
     "max_data_age_days": 3,
+    "daily_question_cap": 200,
 }
 
 
@@ -76,6 +77,7 @@ class Config:
     max_skills_per_listing: int
     min_gap_sample: int
     max_data_age_days: int
+    daily_question_cap: int
 
 
 def load_config(path: Path | str | None = None) -> Config:
@@ -118,6 +120,7 @@ def load_config(path: Path | str | None = None) -> Config:
         max_skills_per_listing=_as_int(merged, "max_skills_per_listing"),
         min_gap_sample=_as_int(merged, "min_gap_sample"),
         max_data_age_days=_as_int(merged, "max_data_age_days"),
+        daily_question_cap=_as_int(merged, "daily_question_cap"),
     )
 
 
