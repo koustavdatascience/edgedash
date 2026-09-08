@@ -191,6 +191,23 @@ Trigger (scheduled) → Orchestrator → sub-agents (Fetcher, Scorer, GapAnalyze
 
 46. Query tools read from the last passing cycle only, per rule 38.
 
+## Deployment
+
+47. Never rely on the local filesystem for anything that must survive a
+    restart. Hosting filesystems are ephemeral. All persistent state is in
+    the hosted database.
+48. Every secret comes from an environment variable read in one place.
+    No secret is ever committed, printed, logged, or shown in an error
+    message or traceback.
+49. The scheduled job and the dashboard are separate processes that share
+    only the database. The dashboard never runs a cycle; the scheduler
+    never serves a page.
+50. The deployed app must start and render even when the database is
+    empty, unreachable, or mid-migration. It shows a clear status message
+    instead of a stack trace. A stranger must never see a traceback.
+51. The scheduled job is idempotent and safe to run twice. It must have a
+    hard timeout and stay inside free-tier limits.
+
 ## Style
 
 - Small, testable functions.

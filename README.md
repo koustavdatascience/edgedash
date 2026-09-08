@@ -1,178 +1,100 @@
 # EdgeDash
 
-EdgeDash is an autonomous career intelligence loop that runs on a schedule: it fetches live job listings, scores each one for fit against your profile, identifies skill gaps across the market, verifies its own output, and publishes a read-only Streamlit dashboard. You configure your target role, city, keywords, and skills once; the system handles the rest.
+EdgeDash is an autonomous AI career intelligence loop that continuously fetches live job listings, scores them for fit against your target career profile, surfaces market skill gaps, and verifies pipeline plausibility. It publishes a read-only Streamlit dashboard powered by persistent storage, keeping your job market intelligence up-to-date automatically.
 
 ## Architecture
 
 ```
-  Trigger (scheduled)
-        |
-        v
-  Orchestrator
-        |
-        +---> Fetcher
-        +---> Scorer
-        +---> GapAnalyzer
-        |
-        v
-    Verifier
-        |
-        v
-     Storage
-        |
-        v
-   Dashboard (read-only)
+Trigger → Orchestrator → sub-agents → Verifier → storage → dashboard
 ```
 
-The Orchestrator reads state and delegates work. It never fetches or scores directly. Each sub-agent has one goal and one stop condition.
+- **Trigger**: Starts execution on a schedule (GitHub Actions daily cron or local scheduler) or via manual dispatch.
+- **Orchestrator**: Reads system state (`SystemState`), builds a dynamic execution plan, delegates work to sub-agents, and logs cycle summary metrics. It never fetches or scores directly.
+- **Sub-agents**: Focused execution units (`Fetcher`, `Scorer`, `GapAnalyzer`, `Extractor`) with single goals and explicit stop conditions.
+- **Verifier**: Asserts output plausibility across score distributions, extraction sanity, gap sample sizes, and data freshness.
+- **Storage**: Unified database abstraction layer supporting SQLite and PostgreSQL.
+- **Dashboard**: Read-only Streamlit view displaying verified market insights, live health status, and cycle logs.
 
-## Current status
+## Why Key Design Decisions Were Made
 
-**Built**
+- **Storage Behind One Module**: All storage logic is encapsulated behind a single interface (`edgedash/storage_factory.py`). Business logic and agents never import `sqlite3` or `psycopg2` directly. This enables a zero-friction, one-file swap between local SQLite and hosted PostgreSQL without changing a single line of agent code.
+- **No Model-Generated SQL**: The natural language query engine (`edgedash/query/`) prohibits text-to-SQL. Allowing LLMs to compose raw SQL introduces severe prompt injection vectors, non-deterministic database mutations, and silent query failures. Instead, the model acts strictly as a router selecting from a fixed registry of parameterised, typed query functions written in Python.
+- **The Verifier Cannot Repair**: The `Verifier` evaluates output plausibility and emits a pass/fail verdict with explicit reasons—it *never* rewrites, repairs, or mutates data. Allowing a validator to auto-correct outputs introduces synthetic, unverified state corruption. If verification fails, the Orchestrator executes at most one controlled retry before marking the cycle degraded.
+- **Deterministic Scoring**: Models extract structured facts (skills, seniority, years of experience); scoring arithmetic is 100% deterministic Python. Asking LLMs to output final numerical scores leads to score inflation, hallucinated ratings, and non-reproducible rankings. Separating fact extraction from scoring keeps fit evaluation auditable, transparent, and reproducible.
 
-- [x] `config.yaml` loading (`edgedash/config.py`)
-- [x] Storage module with SQLite (`edgedash/storage.py`) — listings, skill gaps, cycle log
-- [x] Agent base class and result type (`edgedash/agents/base.py`)
-- [x] Mock Fetcher — **temporary**; returns 12 fake listings with stable IDs for dedup testing (`edgedash/agents/mock_fetcher.py`)
-- [x] Orchestrator with agent registry and cycle logging (`edgedash/orchestrator.py`)
-- [x] Manual cycle entry point (`run_cycle.py`)
+## Known Limitations
 
-**Week 2**
+- **Cross-Source Duplicates**: Deduplication relies on a SHA-256 hash of `source + url`. While this reliably prevents duplicate ingestion from the same source, identical job postings listed on multiple distinct job boards will be ingested as separate listings.
+- **Extraction Misses**: Fact extraction depends on LLM parsing of unstructured text. Non-standard job description layouts or heavy jargon can occasionally lead to omitted required or nice-to-have skills.
+- **Thin Trend Data**: Gap analysis snapshots build longitudinal trend insights over time. On fresh installations or early cycles, skill gap metrics reflect a limited sample size until multiple cycles accumulate historical data.
 
-- [ ] Real Fetcher (live job listings; replaces Mock Fetcher)
-- [ ] Scheduled trigger
+---
 
-**Week 3**
+## Quickstart & Usage
 
-- [ ] Scorer (fit score and reason per listing)
-- [ ] GapAnalyzer (skill gap frequency tracking)
-- [ ] Verifier (output validation before persistence)
-
-**Week 4**
-
-- [ ] Streamlit dashboard (read-only)
-- [ ] SQLite to hosted Postgres migration (one-file storage swap)
-
-## Setup
+### 1. Prerequisites & Installation
 
 **Python:** 3.11 or newer.
 
 ```bash
-git clone <repo-url>
-cd ai-career-intelligence-agent
-```
-
-### 1. Install Dependencies
-
-```bash
+git clone https://github.com/koustavdatascience/edgedash.git
+cd edgedash
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment
+### 2. Configure Environment & Profile
 
-Copy the example environment file and add your LLM API credentials:
+Copy `.env.example` to `.env` and set your LLM API credentials:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your chosen LLM provider:
-
-**For Gemini (Google AI):**
+Edit `.env` with your API key:
 ```env
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=your_actual_api_key_here
 LLM_MODEL=gemini-1.5-flash
 ```
 
-**For Ollama (local):**
-```env
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-LLM_MODEL=llama3
-```
+Customize target role, keywords, skills, and thresholds in `config.yaml`. All user profile settings live in `config.yaml`; no profile values are hardcoded.
 
-### 3. Configure Your Profile
-
-Edit `config.yaml` at the repo root with your target role, city, keywords, skills, and thresholds. All user-specific values live here; nothing is hardcoded in code.
-
-### 4. Run a Manual Cycle
+### 3. Run a Manual Cycle
 
 ```bash
 python run_cycle.py
 ```
 
-This will:
-- Fetch job listings from configured sources
-- Extract structured facts using the LLM
-- Score each listing for fit against your profile
-- Analyze skill gaps across the market
-- Verify data quality
-- Log results to the database
+Options:
+- `python run_cycle.py --dry-run`: Inspect state and execution plan without making state writes or API calls.
+- `python run_cycle.py --force scorer`: Force specific sub-agents to run.
+- `python run_cycle.py --explain`: Display detailed decision trace for each state variable.
 
-Run it twice to confirm deduplication: the first cycle inserts new listings; the second reports duplicates ignored.
+### 4. Health Check
 
-### 5. Run Scheduled Automation (Optional)
-
-For continuous automated operation, use the scheduler:
+Run the system health check CLI (read-only):
 
 ```bash
-python run_scheduler.py
+python -m edgedash.health
 ```
 
-Configure the schedule interval in `config.yaml`:
-- `hourly` - Run every hour
-- `daily` - Run once per day
-- `weekly` - Run once per week
-- `every_30_minutes` - Custom interval
-- `every_2_hours` - Custom interval
+Evaluates database connectivity, listing freshness ($\le 3$ days), cycle age ($\le 48$ hours), and verification failure trends. Exits `0` if healthy, `1` if unhealthy.
 
-The scheduler runs an initial cycle immediately, then follows the configured interval. Press Ctrl+C to stop.
-
-### 6. View Dashboard (Optional)
-
-For a visual overview of your job market intelligence:
+### 5. Launch Dashboard
 
 ```bash
 streamlit run dashboard.py
 ```
 
-The dashboard provides:
-- **Job Matches**: Top job listings with fit scores and detailed analysis
-- **Skill Gaps**: Analysis of missing skills across the market
-- **Cycle History**: Log of all automated cycles and their results
-- **Statistics**: Overview of database status and system health
+Features:
+- Live health status indicator bar (`🟢 Live`, `🟡 Stale`, `🔴 Critical`)
+- Top scored job matches & market skill gaps
+- Complete agent activity log
+- Natural language query interface (powered by parameterised tools)
 
-### 7. Migrate to Postgres (Optional)
+### 6. Automated Scheduled Execution (GitHub Actions)
 
-For production deployment with hosted Postgres:
-
-1. Set up a Postgres database and get the connection URL
-2. Add the DATABASE_URL to your `.env` file:
-   ```env
-   DATABASE_URL=postgresql://user:password@host:5432/database_name
-   ```
-3. Change the database backend in `config.yaml`:
-   ```yaml
-   db_backend: postgres
-   ```
-4. Install the Postgres dependency:
-   ```bash
-   pip install psycopg2-binary
-   ```
-
-The system will automatically use the Postgres storage module with the same interface - no code changes required.
-
-## Design decisions
-
-**Isolated storage module.** Every database call goes through `edgedash/storage.py`. No other module imports `sqlite3`. When we move to Postgres in week 4, only that file changes.
-
-**Stable listing IDs.** Each listing ID is a SHA-256 hash of `source + url`. The same job from the same source always maps to the same row, so `INSERT OR IGNORE` deduplicates cleanly and `upsert_listings` can return an accurate count of genuinely new rows.
-
-**Orchestrator delegates.** The Orchestrator reads state, decides which agents to run, and logs results. It does not fetch listings or compute scores itself. That keeps each agent independently testable and lets you swap Mock Fetcher for a real one by changing one line in the registry.
-
-**Environment-based configuration.** Sensitive values (API keys) are loaded from environment variables via a `.env` file. The `.env.example` template shows required variables. This keeps secrets out of code and git.
-
-**LLM abstraction.** All LLM calls go through `edgedash/llm.py` with a single `complete_json()` function. Provider and model are configured via environment variables, supporting Gemini and Ollama. Rate limiting (1 req/s, 15 req/min) is built-in to stay within free tiers.
-
-**Storage backend abstraction.** Storage access goes through `edgedash/storage_factory.py` which selects between SQLite (default) and Postgres based on `db_backend` config. This enables one-file migration from SQLite to hosted Postgres by changing a single config value and setting the `DATABASE_URL` environment variable.
+A GitHub Actions workflow is provided in `.github/workflows/cycle.yml`:
+- **Schedule**: Daily at `06:00 IST` (`00:30 UTC`).
+- **Manual Trigger**: Supports `workflow_dispatch` via GitHub Web UI or CLI (`gh workflow run cycle.yml`).
+- **CI Safety**: Executes migrations, runs the cycle with a 10-minute timeout, uploads `cycle.log` artifacts, and executes the system health check as a final step.

@@ -5,3 +5,5 @@ data/
 .env
 .venv/
 venv/
+.streamlit/secrets.toml
+secrets.toml

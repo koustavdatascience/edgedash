@@ -1,0 +1,60 @@
+name: EdgeDash Cycle
+
+on:
+  schedule:
+    # 06:00 IST (UTC+05:30) / 00:30 UTC
+    - cron: '30 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  cycle:
+    name: Run Cycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run database migration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python -m edgedash.storage --migrate
+
+      - name: Run EdgeDash cycle
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -o pipefail
+          python run_cycle.py 2>&1 | tee cycle.log
+
+      - name: Upload cycle log artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cycle-log
+          path: cycle.log
+          if-no-files-found: ignore
+
+      - name: System health check
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python -m edgedash.health
+

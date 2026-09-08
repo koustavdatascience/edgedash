@@ -1,16 +1,20 @@
 """EdgeDash — "Ask your data" web interface.
 
 Run with:
-    streamlit run app.py
+    streamlit run edgedash/app.py
 
 Two-call pipeline per rules 42-45: ROUTE (pick a tool) -> PHRASE (prose
 from the rows). Every answer shows its underlying rows (rule 44).
 """
 from __future__ import annotations
 
+import logging
+
 import streamlit as st
 
 from edgedash.query.ask import ask, Answer, _daily_cap_exceeded
+
+logger = logging.getLogger("edgedash.app")
 
 EXAMPLES = [
     "Show me the best matches",
@@ -43,11 +47,19 @@ st.set_page_config(
 
 st.title("🎯 EdgeDash — Ask Your Data")
 
-config = st.session_state.get("config")
-if config is None:
-    from edgedash.config import load_config
-    config = load_config()
-    st.session_state.config = config
+try:
+    config = st.session_state.get("config")
+    if config is None:
+        from edgedash.config import load_config
+        config = load_config()
+        st.session_state.config = config
+except Exception:
+    logger.exception("ask page: config load failed")
+    st.error(
+        "The application configuration could not be loaded. "
+        "The detail was recorded in the server log."
+    )
+    st.stop()
 
 daily_cap_exceeded = _daily_cap_exceeded(config)
 
@@ -81,7 +93,15 @@ else:
     if question:
         st.session_state.last_question = question
         with st.spinner("Routing and executing query..."):
-            answer: Answer = ask(question)
+            try:
+                answer: Answer = ask(question)
+            except Exception:
+                logger.exception("ask page: question failed")
+                st.error(
+                    "The system could not answer that question. "
+                    "The detail was recorded in the server log."
+                )
+                st.stop()
 
         _format_answer(answer)
         _format_rows(answer.rows)

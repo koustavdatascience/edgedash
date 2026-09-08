@@ -6,17 +6,28 @@ including failed and degraded ones, because the failures are the point.
 
 Run with:
     streamlit run dashboard.py
+
+Deployment (rule 50): the page starts and renders even when the database
+is empty, unreachable, or mid-migration. It shows a clear status message
+instead of a stack trace. Failure detail is logged server-side, never
+rendered to a visitor (rule 48).
 """
 from __future__ import annotations
 
+import logging
+import os
 import re
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from typing import Any, Callable
 
 import streamlit as st
 
 from edgedash.config import load_config
 from edgedash.storage_factory import get_storage_module, init_db
+
+logger = logging.getLogger("edgedash.dashboard")
+
+REPO_URL = "https://github.com/koustavdatascience/edgedash"
 
 
 # ---------------------------------------------------------------------------
@@ -32,7 +43,7 @@ st.set_page_config(
 
 
 # ---------------------------------------------------------------------------
-# Cached data loaders — short TTL so SQLite isn't hammered on every rerun
+# Cached data loaders — short TTL so the database isn't hammered on every rerun
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=30)
@@ -68,6 +79,27 @@ def _load_gaps(db_path: str, limit: int = 10) -> list[dict[str, Any]]:
     config = load_config()
     storage = get_storage_module(config)
     return storage.get_latest_snapshot(limit=limit)
+
+
+@st.cache_data(ttl=30)
+def _load_health_report(db_path: str) -> dict[str, str]:
+    """Return health status message safely (rule 50 compliant)."""
+    try:
+        config = load_config()
+        storage = get_storage_module(config)
+        from edgedash.health import evaluate_health
+        report = evaluate_health(storage)
+        return {
+            "status": report.dashboard_status,
+            "message": report.dashboard_message,
+        }
+    except Exception:
+        logger.exception("dashboard: health report failed")
+        return {
+            "status": "amber",
+            "message": "🟡 Stale: Health status unavailable",
+        }
+
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +139,41 @@ def _age_str(ts: str | None) -> str:
         return ""
 
 
+def _next_run_datetime(config: Any) -> str | None:
+    """Best-effort next scheduled run time based on config.schedule_interval.
+
+    No scheduler runs in the dashboard process (rule 49) — this is purely an
+    estimate of when the scheduled job will next run.
+    """
+    interval = getattr(config, "schedule_interval", "hourly")
+    now = datetime.now(timezone.utc)
+    try:
+        if interval == "hourly":
+            nxt = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+        elif interval == "daily":
+            nxt = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        elif interval == "daily_6am":
+            nxt = now.replace(hour=6, minute=0, second=0, microsecond=0)
+            if nxt <= now:
+                nxt += timedelta(days=1)
+        elif interval == "weekly":
+            nxt = (now + timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+        elif interval.startswith("every_"):
+            parts = interval.split("_")
+            value, unit = int(parts[1]), parts[2]
+            if unit == "minutes":
+                nxt = now + timedelta(minutes=value)
+            elif unit == "hours":
+                nxt = now + timedelta(hours=value)
+            else:
+                return None
+        else:
+            return None
+        return nxt.isoformat()
+    except Exception:
+        return None
+
+
 def _parse_cycle_notes(notes: str) -> dict[str, str]:
     """Extract key=value pairs from orchestrator summary notes string."""
     result: dict[str, str] = {}
@@ -136,31 +203,133 @@ def _row_style(status: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Hostile-startup guards (rule 50)
+# ---------------------------------------------------------------------------
+
+def _db_status(config: Any) -> str:
+    """Return 'ok' | 'missing' | 'unreachable' for the active deploy.
+
+    Local dev (EDGEDASH_ENV != production) falls back to SQLite and is always
+    'ok'. In production the hosted database is required (rule 47).
+    """
+    if os.environ.get("EDGEDASH_ENV", "dev") != "production":
+        return "ok"
+    if not os.environ.get("DATABASE_URL"):
+        return "missing"
+    return "unreachable"
+
+
+def _init_storage() -> tuple[str, Any, Any | None]:
+    """(status, config, storage) — never raises. Detail is logged server-side."""
+    try:
+        config = load_config()
+    except Exception:
+        logger.exception("dashboard: config load failed")
+        return "config", None, None
+
+    status = _db_status(config)
+    if status != "ok":
+        return status, config, None
+
+    try:
+        storage = get_storage_module(config)
+        init_db(config)
+        return "ok", config, storage
+    except Exception:
+        logger.exception("dashboard: database init/connect failed")
+        # If the URL was explicitly requested, call it unreachable; otherwise
+        # local fallback is presumed fine (storage logged its own state).
+        return ("unreachable" if os.environ.get("DATABASE_URL") else "ok"), config, None
+
+
+def _render_db_status(status: str, config: Any | None) -> None:
+    """Static status page — a stranger never sees a traceback (rule 50)."""
+    st.title("🎯 EdgeDash")
+
+    if status == "missing":
+        st.error("**Database not configured**")
+        st.markdown(
+            "This dashboard reads from a hosted database, and none is configured "
+            "yet. Set **`DATABASE_URL`** (and **`EDGEDASH_ENV=production`**) in the "
+            "deployment secrets, then restart the app.  \n"
+            "The page will come alive automatically once the database is reachable."
+        )
+    elif status == "unreachable":
+        st.error("**Database unreachable**")
+        st.markdown(
+            "The database could not be reached. It may be migrating, restarting, "
+            "or briefly unavailable. This is a temporary state — the page will "
+            "load automatically when the database is reachable again.  \n"
+            "The technical detail was recorded in the server log."
+        )
+    else:
+        st.error("**Could not start**")
+        st.markdown(
+            "The dashboard could not load its configuration. The detail was "
+            "recorded in the server log."
+        )
+
+    _render_footer(None)
+
+
+# ---------------------------------------------------------------------------
+# Panel wrapper — one failing panel cannot take down the page (rule 50)
+# ---------------------------------------------------------------------------
+
+def _panel(key: str, render_fn: Callable[[], None]) -> None:
+    try:
+        render_fn()
+    except Exception:
+        logger.exception("dashboard: panel failed (%s)", key)
+        st.error("This panel failed to load. The detail was logged server-side.")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    # --- Load config + storage ---
-    try:
-        config = load_config()
-        storage = get_storage_module(config)
-        init_db(config)
-        db_path = config.db_path
-    except Exception as exc:
-        st.error(f"Configuration error: {exc}")
+    status, config, storage = _init_storage()
+    if status != "ok" or config is None:
+        _render_db_status(status, config)
         return
 
-    stats          = _load_stats(db_path)
-    last_passing   = _load_passing_cycle_safe(db_path)
-    cycle_log      = _load_cycle_log(db_path, limit=30)
-    latest_orch    = _latest_orchestrator_row(cycle_log)
+    db_path = config.db_path
 
     # -----------------------------------------------------------------------
-    # 1. HEADER STRIP
+    # 0. HEADER STRIP
     # -----------------------------------------------------------------------
     st.title("🎯 EdgeDash")
+    _panel("header", lambda: _render_header(db_path))
+    st.divider()
 
-    # Determine whether the most recent cycle is verified
+    # -----------------------------------------------------------------------
+    # 1. AGENT ACTIVITY LOG
+    # -----------------------------------------------------------------------
+    _panel("activity_log", lambda: _render_activity_panel(db_path, config))
+
+    st.divider()
+
+    # -----------------------------------------------------------------------
+    # 2. TOP SCORED LISTINGS  +  3. TOP SKILL GAPS
+    # -----------------------------------------------------------------------
+    col_listings, col_gaps = st.columns([3, 2])
+    with col_listings:
+        _panel("listings", lambda: _render_listings_panel(db_path, config))
+    with col_gaps:
+        _panel("gaps", lambda: _render_gaps_panel(db_path, config))
+
+    _render_footer(db_path)
+
+
+def _render_header(db_path: str) -> None:
+    health = _load_health_report(db_path)
+    st.markdown(health.get("message", "⚪ Health status unavailable"))
+
+    last_passing = _load_last_passing_cycle(db_path)
+    cycle_log = _load_cycle_log(db_path, limit=30)
+    stats = _load_stats(db_path)
+
     current_verdict, current_ts = _current_verdict(cycle_log)
     data_ts = last_passing.get("finished_at") if last_passing else None
 
@@ -170,10 +339,7 @@ def main() -> None:
             f"Data below is from the last verified cycle: **{_fmt_ts(data_ts)}**  \n"
             "Stale verified data is shown rather than fresh unverified data (rule 38)."
         )
-    elif not last_passing:
-        st.info("No verified cycle yet — panels will be empty until the first cycle passes verification.")
 
-    # Metric strip
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Last Verified Cycle", _fmt_ts(data_ts))
     c2.metric("Total Listings", stats.get("total_listings", 0))
@@ -184,41 +350,62 @@ def main() -> None:
                     else ("❌ fail" if current_verdict in ("failed", "fail", "degraded") else "—")
     c5.metric("Current Verdict", verdict_label, delta=_age_str(current_ts), delta_color="off")
 
-    st.divider()
 
-    # -----------------------------------------------------------------------
-    # 2. AGENT ACTIVITY LOG
-    # -----------------------------------------------------------------------
+def _render_activity_panel(db_path: str, config: Any) -> None:
     st.subheader("Agent Activity Log")
     st.caption("All cycles, including failures and degraded runs. Most recent first.")
 
+    cycle_log = _load_cycle_log(db_path, limit=30)
     if not cycle_log:
-        st.info("No cycles yet. Run `python run_cycle.py` to start.")
-    else:
-        _render_activity_log(cycle_log)
+        nxt = _next_run_datetime(config)
+        when = f"**{_fmt_ts(nxt)}**" if nxt else "as scheduled"
+        st.info(
+            f"No cycles yet — the first run is scheduled for {when}. "
+            "The dashboard will populate automatically after it completes."
+        )
+        return
+    _render_activity_log(cycle_log)
 
+
+def _render_listings_panel(db_path: str, config: Any) -> None:
+    st.subheader("Top 10 Scored Listings")
+    last_passing = _load_last_passing_cycle(db_path)
+    if not last_passing:
+        _empty_state_caption(config)
+        return
+    _render_listings(_load_listings(db_path, limit=10, min_score=0))
+
+
+def _render_gaps_panel(db_path: str, config: Any) -> None:
+    st.subheader("Top 10 Skill Gaps")
+    last_passing = _load_last_passing_cycle(db_path)
+    if not last_passing:
+        _empty_state_caption(config)
+        return
+    _render_gaps(_load_gaps(db_path, limit=10))
+
+
+def _empty_state_caption(config: Any) -> None:
+    nxt = _next_run_datetime(config)
+    when = f"**{_fmt_ts(nxt)}**" if nxt else "as scheduled"
+    st.caption(f"No data yet — the first scheduled run is {when}.")
+
+
+def _render_footer(db_path: str | None) -> None:
     st.divider()
-
-    # -----------------------------------------------------------------------
-    # 3a. TOP SCORED LISTINGS  +  3b. TOP SKILL GAPS
-    # -----------------------------------------------------------------------
-    col_listings, col_gaps = st.columns([3, 2])
-
-    with col_listings:
-        st.subheader("Top 10 Scored Listings")
-        if not last_passing:
-            st.caption("Awaiting first verified cycle.")
-        else:
-            listings = _load_listings(db_path, limit=10, min_score=0)
-            _render_listings(listings)
-
-    with col_gaps:
-        st.subheader("Top 10 Skill Gaps")
-        if not last_passing:
-            st.caption("Awaiting first verified cycle.")
-        else:
-            gaps = _load_gaps(db_path, limit=10)
-            _render_gaps(gaps)
+    fcol1, fcol2 = st.columns([3, 1])
+    with fcol1:
+        if db_path:
+            last_passing = None
+            try:
+                last_passing = _load_last_passing_cycle(db_path)
+            except Exception:
+                pass
+            ts = last_passing.get("finished_at") if last_passing else None
+            label = f"Last verified cycle: **{_fmt_ts(ts)}**" if ts else "Last verified cycle: **never**"
+            st.caption(label)
+    with fcol2:
+        st.markdown(f"[📦 Source on GitHub]({REPO_URL})")
 
 
 # ---------------------------------------------------------------------------
@@ -349,13 +536,6 @@ def _render_gaps(gaps: list[dict[str, Any]]) -> None:
 # ---------------------------------------------------------------------------
 # State helpers
 # ---------------------------------------------------------------------------
-
-def _load_passing_cycle_safe(db_path: str) -> dict[str, Any] | None:
-    try:
-        return _load_last_passing_cycle(db_path)
-    except Exception:
-        return None
-
 
 def _latest_orchestrator_row(log: list[dict[str, Any]]) -> dict[str, Any] | None:
     for row in log:
