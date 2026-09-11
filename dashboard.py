@@ -47,6 +47,40 @@ st.set_page_config(
 )
 
 
+def _inject_ui_theme() -> None:
+    """Apply the EdgeDash visual system consistently across Streamlit widgets."""
+    st.markdown(
+        """
+        <style>
+        :root { --ed-blue:#60a5fa; --ed-cyan:#22d3ee; --ed-ink:#0b1220; --ed-muted:#94a3b8; }
+        .stApp { background: radial-gradient(circle at 8% 0%, #172554 0, #0b1220 34%, #070b14 100%); }
+        [data-testid="stHeader"] { background: transparent; }
+        .block-container { max-width: 1440px; padding: 2.5rem 3.5rem 3rem; }
+        h1, h2, h3 { letter-spacing: -0.025em; }
+        h2 { margin-top: .35rem; }
+        [data-testid="stMetric"] { background: rgba(15, 23, 42, .72); border: 1px solid rgba(148,163,184,.16); border-radius: 16px; padding: 1rem 1.15rem; box-shadow: 0 10px 28px rgba(0,0,0,.16); }
+        [data-testid="stMetricLabel"] { color: #94a3b8; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; }
+        [data-testid="stMetricValue"] { color: #f8fafc; font-weight: 750; }
+        [data-testid="stVerticalBlockBorderWrapper"] { border-color: rgba(148,163,184,.18); background: rgba(15,23,42,.38); border-radius: 18px; }
+        .ed-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:2rem; padding:1.5rem 1.7rem; margin-bottom:1.4rem; border:1px solid rgba(96,165,250,.22); border-radius:22px; background:linear-gradient(115deg, rgba(30,64,175,.45), rgba(15,23,42,.35) 62%, rgba(8,47,73,.35)); box-shadow:0 18px 55px rgba(2,6,23,.32); }
+        .ed-kicker { color:#67e8f9; font-size:.72rem; font-weight:800; letter-spacing:.16em; text-transform:uppercase; margin-bottom:.45rem; }
+        .ed-title { color:#f8fafc; font-size:2.35rem; font-weight:800; line-height:1.05; margin:0; }
+        .ed-subtitle { color:#cbd5e1; margin:.55rem 0 0; font-size:.98rem; }
+        .ed-chip { color:#bfdbfe; border:1px solid rgba(147,197,253,.28); border-radius:999px; padding:.5rem .8rem; white-space:nowrap; font-size:.82rem; background:rgba(30,64,175,.22); }
+        .ed-section-note { color:#94a3b8; font-size:.86rem; margin-top:-.35rem; margin-bottom:.8rem; }
+        .stButton > button { border-radius:10px; border:1px solid rgba(96,165,250,.24); background:rgba(30,41,59,.72); color:#dbeafe; }
+        .stButton > button:hover { border-color:#60a5fa; color:#fff; background:rgba(37,99,235,.28); }
+        div[data-baseweb="input"] { border-radius:12px; }
+        footer { visibility:hidden; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+_inject_ui_theme()
+
+
 # ---------------------------------------------------------------------------
 # Cached data loaders — short TTL so the database isn't hammered on every rerun
 # ---------------------------------------------------------------------------
@@ -363,6 +397,19 @@ def main() -> None:
 def _render_header(db_path: str) -> None:
     backend_key = "postgres" if os.environ.get("DATABASE_URL") else "sqlite"
     health = _load_health_report(db_path, backend_key)
+    st.markdown(
+        """
+        <div class="ed-hero">
+          <div>
+            <div class="ed-kicker">Autonomous opportunity intelligence</div>
+            <div class="ed-title">EdgeDash</div>
+            <div class="ed-subtitle">A verified view of the latest listings, fit signals, and skill gaps.</div>
+          </div>
+          <div class="ed-chip">Live workspace · Supabase</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.markdown(health.get("message", "⚪ Health status unavailable"))
 
     last_passing = _load_last_passing_cycle(db_path)
@@ -392,7 +439,7 @@ def _render_header(db_path: str) -> None:
 
 def _render_activity_panel(db_path: str, config: Any) -> None:
     st.subheader("Agent Activity Log")
-    st.caption("All cycles, including failures and degraded runs. Most recent first.")
+    st.markdown('<div class="ed-section-note">Every run, including failures and degraded cycles — newest first.</div>', unsafe_allow_html=True)
 
     cycle_log = _load_cycle_log(db_path, limit=30)
     if not cycle_log:
@@ -408,6 +455,7 @@ def _render_activity_panel(db_path: str, config: Any) -> None:
 
 def _render_listings_panel(db_path: str, config: Any) -> None:
     st.subheader("Top 10 Scored Listings")
+    st.markdown('<div class="ed-section-note">Highest-fit opportunities from the latest verified cycle.</div>', unsafe_allow_html=True)
     last_passing = _load_last_passing_cycle(db_path)
     if not last_passing:
         _empty_state_caption(config)
@@ -417,6 +465,7 @@ def _render_listings_panel(db_path: str, config: Any) -> None:
 
 def _render_gaps_panel(db_path: str, config: Any) -> None:
     st.subheader("Top 10 Skill Gaps")
+    st.markdown('<div class="ed-section-note">Skills creating the largest opportunity cost.</div>', unsafe_allow_html=True)
     last_passing = _load_last_passing_cycle(db_path)
     if not last_passing:
         _empty_state_caption(config)
@@ -446,10 +495,7 @@ def _render_ask_section(config: Any) -> None:
     from edgedash.query.ask import ask, Answer, _daily_cap_exceeded
 
     st.subheader("💬 Ask Your Data")
-    st.caption(
-        "Ask a question in plain English. Answers come from the last verified "
-        "cycle's data only, with the underlying rows shown alongside."
-    )
+    st.markdown('<div class="ed-section-note">Ask in plain English. Answers use only the last verified cycle and show the supporting rows.</div>', unsafe_allow_html=True)
 
     if _daily_cap_exceeded(config):
         cap = getattr(config, "daily_question_cap", 200)
@@ -601,17 +647,17 @@ def _render_listings(listings: list[dict[str, Any]]) -> None:
         bar_col = "#2ecc71" if score >= 70 else ("#f39c12" if score >= 50 else "#e74c3c")
 
         score_bar = (
-            f'<div style="background:#ddd;border-radius:4px;height:8px;margin:2px 0 4px">'
-            f'<div style="width:{bar_pct}%;background:{bar_col};border-radius:4px;height:8px"></div>'
+            f'<div style="background:#1e293b;border-radius:999px;height:7px;margin:6px 0 4px">'
+            f'<div style="width:{bar_pct}%;background:{bar_col};border-radius:999px;height:7px"></div>'
             f'</div>'
         )
 
         with st.container(border=True):
             sc, info = st.columns([1, 5])
-            sc.markdown(f"**{score}**")
+            sc.markdown(f'<div style="font-size:1.35rem;font-weight:800;color:{bar_col}">{score}</div><div style="color:#94a3b8;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em">fit</div>', unsafe_allow_html=True)
             sc.markdown(score_bar, unsafe_allow_html=True)
             info.markdown(f"**[{title}]({url})**" if url else f"**{title}**")
-            info.caption(f"{co}  ·  {reason[:120]}{'…' if len(reason) > 120 else ''}")
+            info.caption(f"{co}  ·  {reason[:140]}{'…' if len(reason) > 140 else ''}")
 
 
 def _render_gaps(gaps: list[dict[str, Any]]) -> None:
@@ -629,8 +675,8 @@ def _render_gaps(gaps: list[dict[str, Any]]) -> None:
         bar_pct = int(cost / max_cost * 100)
 
         bar_html = (
-            f'<div style="background:#ddd;border-radius:4px;height:6px;margin:2px 0 2px">'
-            f'<div style="width:{bar_pct}%;background:#e74c3c;border-radius:4px;height:6px"></div>'
+            f'<div style="background:#1e293b;border-radius:999px;height:6px;margin:5px 0 3px">'
+            f'<div style="width:{bar_pct}%;background:linear-gradient(90deg,#fb7185,#f97316);border-radius:999px;height:6px"></div>'
             f'</div>'
         )
         label = f"{'⚠ ' if low_conf else ''}**{skill}**"
