@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from edgedash.config import Config
 
 
@@ -9,7 +11,9 @@ def get_storage_module(config: Config):
     This is the single point of storage backend selection. Changing from
     SQLite to Postgres is a one-line config change.
     """
-    backend = getattr(config, "db_backend", "sqlite")
+    # Hosted state takes precedence over the local config fallback. This keeps
+    # the dashboard and scheduled worker on the same database when deployed.
+    backend = "postgres" if os.environ.get("DATABASE_URL") else getattr(config, "db_backend", "sqlite")
     
     if backend == "postgres":
         try:
@@ -29,10 +33,10 @@ def get_storage_module(config: Config):
 def init_db(config: Config) -> None:
     """Initialize database using configured backend."""
     storage = get_storage_module(config)
+    use_postgres = bool(os.environ.get("DATABASE_URL")) or config.db_backend == "postgres"
     
-    if config.db_backend == "postgres":
+    if use_postgres:
         # For Postgres, use DATABASE_URL or connection params
-        import os
         db_url = os.environ.get("DATABASE_URL")
         if db_url:
             storage.init_db(db_url)
