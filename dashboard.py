@@ -58,7 +58,8 @@ def _inject_ui_theme() -> None:
         [data-testid="stHeader"] { background: transparent; }
         .block-container { max-width: 1480px; padding: 2.2rem 3rem 3rem; }
         [data-testid="stSidebar"] { background: linear-gradient(180deg, rgba(20,20,26,.96), rgba(10,10,14,.98)); border-right:1px solid rgba(255,255,255,.08); }
-        [data-testid="stSidebar"] > div:first-child { padding: 1.35rem 1rem; }
+        [data-testid="stSidebar"] > div:first-child { padding: 1.35rem 1rem; height:100vh; overflow:hidden !important; }
+        section[data-testid="stSidebar"] { position:fixed; top:0; bottom:0; overflow:hidden; }
         [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color:#a8a3b0; }
         .ed-side-brand { color:#f8fafc; font-size:1.15rem; font-weight:800; letter-spacing:-.02em; padding:.35rem .6rem 1.2rem; }
         .ed-side-brand span { color:#e9a8d2; }
@@ -102,7 +103,7 @@ def _render_sidebar() -> None:
         st.markdown('<div class="ed-side-label">Tools</div>', unsafe_allow_html=True)
         st.markdown("◌  Ask Your Data")
         st.markdown("◌  About EdgeDash")
-        st.markdown('<div style="height:32vh"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:10vh"></div>', unsafe_allow_html=True)
         st.markdown('<div class="ed-side-label">Links</div>', unsafe_allow_html=True)
         st.markdown("[Source on GitHub](%s)" % REPO_URL)
         st.markdown("[Koustav’s profile](%s)" % GITHUB_PROFILE_URL)
@@ -500,7 +501,9 @@ def _render_gaps_panel(db_path: str, config: Any) -> None:
     if not last_passing:
         _empty_state_caption(config)
         return
-    _render_gaps(_load_gaps(db_path, limit=10))
+    gaps = _load_gaps(db_path, limit=10)
+    _render_gap_chart(gaps)
+    _render_gaps(gaps)
 
 
 def _empty_state_caption(config: Any) -> None:
@@ -737,6 +740,55 @@ def _render_gaps(gaps: list[dict[str, Any]]) -> None:
         st.markdown(label)
         st.markdown(bar_html, unsafe_allow_html=True)
         st.caption(caption)
+
+
+def _render_gap_chart(gaps: list[dict[str, Any]]) -> None:
+    """Interactive opportunity-cost chart inspired by the reference portfolio view."""
+    if not gaps:
+        return
+    try:
+        import altair as alt
+        import pandas as pd
+
+        rows = [
+            {
+                "rank": idx + 1,
+                "skill": str(gap.get("skill", "?")),
+                "opportunity_cost": float(gap.get("opportunity_cost", 0) or 0),
+                "listings_blocked": int(gap.get("listings_blocked", 0) or 0),
+                "confidence": "Low" if gap.get("low_confidence") else "Normal",
+            }
+            for idx, gap in enumerate(gaps)
+        ]
+        df = pd.DataFrame(rows)
+        selected = alt.selection_point(fields=["skill"], empty="all")
+        base = alt.Chart(df).encode(
+            x=alt.X("rank:Q", title="Priority rank", axis=alt.Axis(values=list(range(1, len(rows) + 1)))),
+            y=alt.Y("opportunity_cost:Q", title="Opportunity cost", scale=alt.Scale(zero=True)),
+            tooltip=[
+                alt.Tooltip("skill:N", title="Skill"),
+                alt.Tooltip("opportunity_cost:Q", title="Cost", format=".1f"),
+                alt.Tooltip("listings_blocked:Q", title="Listings blocked"),
+                alt.Tooltip("confidence:N", title="Confidence"),
+            ],
+        )
+        area = base.mark_area(
+            line={"color": "#e5a8d3", "strokeWidth": 2},
+            color=alt.Gradient(
+                gradient="linear",
+                stops=[alt.GradientStop(color="#e5a8d3", offset=0), alt.GradientStop(color="#31213b", offset=1)],
+                x1=1, x2=1, y1=0, y2=1,
+            ),
+            opacity=alt.condition(selected, alt.value(0.82), alt.value(0.32)),
+        ).add_params(selected)
+        points = base.mark_point(filled=True, size=90).encode(
+            color=alt.condition(selected, alt.value("#f8c4e9"), alt.value("#a78bfa")),
+            opacity=alt.condition(selected, alt.value(1), alt.value(0.45)),
+        )
+        st.altair_chart((area + points).properties(height=235), use_container_width=True)
+        st.caption("Hover over a point for details. Click a skill to highlight its opportunity cost.")
+    except Exception:
+        logger.exception("dashboard: skill-gap chart failed")
 
 
 # ---------------------------------------------------------------------------
