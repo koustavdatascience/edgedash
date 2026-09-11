@@ -44,7 +44,7 @@ st.set_page_config(
     page_title="EdgeDash",
     page_icon="🎯",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 
@@ -54,23 +54,30 @@ def _inject_ui_theme() -> None:
         """
         <style>
         :root { --ed-blue:#60a5fa; --ed-cyan:#22d3ee; --ed-ink:#0b1220; --ed-muted:#94a3b8; }
-        .stApp { background: radial-gradient(circle at 8% 0%, #172554 0, #0b1220 34%, #070b14 100%); }
+        .stApp { background: radial-gradient(circle at 70% 0%, #2b1b2f 0, #11121c 28%, #080a10 72%); }
         [data-testid="stHeader"] { background: transparent; }
-        .block-container { max-width: 1440px; padding: 2.5rem 3.5rem 3rem; }
+        .block-container { max-width: 1480px; padding: 2.2rem 3rem 3rem; }
+        [data-testid="stSidebar"] { background: linear-gradient(180deg, rgba(20,20,26,.96), rgba(10,10,14,.98)); border-right:1px solid rgba(255,255,255,.08); }
+        [data-testid="stSidebar"] > div:first-child { padding: 1.35rem 1rem; }
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color:#a8a3b0; }
+        .ed-side-brand { color:#f8fafc; font-size:1.15rem; font-weight:800; letter-spacing:-.02em; padding:.35rem .6rem 1.2rem; }
+        .ed-side-brand span { color:#e9a8d2; }
+        .ed-side-label { color:#6f6a78; font-size:.68rem; font-weight:800; letter-spacing:.14em; text-transform:uppercase; padding:.85rem .65rem .35rem; }
+        .ed-side-card { border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.045); border-radius:14px; padding:.75rem; margin:.35rem 0 1.25rem; }
         h1, h2, h3 { letter-spacing: -0.025em; }
         h2 { margin-top: .35rem; }
         [data-testid="stMetric"] { background: rgba(15, 23, 42, .72); border: 1px solid rgba(148,163,184,.16); border-radius: 16px; padding: 1rem 1.15rem; box-shadow: 0 10px 28px rgba(0,0,0,.16); }
         [data-testid="stMetricLabel"] { color: #94a3b8; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; }
         [data-testid="stMetricValue"] { color: #f8fafc; font-weight: 750; }
         [data-testid="stVerticalBlockBorderWrapper"] { border-color: rgba(148,163,184,.18); background: rgba(15,23,42,.38); border-radius: 18px; }
-        .ed-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:2rem; padding:1.5rem 1.7rem; margin-bottom:1.4rem; border:1px solid rgba(96,165,250,.22); border-radius:22px; background:linear-gradient(115deg, rgba(30,64,175,.45), rgba(15,23,42,.35) 62%, rgba(8,47,73,.35)); box-shadow:0 18px 55px rgba(2,6,23,.32); }
-        .ed-kicker { color:#67e8f9; font-size:.72rem; font-weight:800; letter-spacing:.16em; text-transform:uppercase; margin-bottom:.45rem; }
+        .ed-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:2rem; padding:1.35rem 1.5rem; margin-bottom:1.2rem; border:1px solid rgba(255,255,255,.13); border-radius:19px; background:linear-gradient(112deg, rgba(92,47,76,.46), rgba(35,31,43,.42) 55%, rgba(12,17,28,.55)); box-shadow:0 18px 55px rgba(0,0,0,.28); }
+        .ed-kicker { color:#e4a7d6; font-size:.7rem; font-weight:800; letter-spacing:.16em; text-transform:uppercase; margin-bottom:.45rem; }
         .ed-title { color:#f8fafc; font-size:2.35rem; font-weight:800; line-height:1.05; margin:0; }
         .ed-subtitle { color:#cbd5e1; margin:.55rem 0 0; font-size:.98rem; }
-        .ed-chip { color:#bfdbfe; border:1px solid rgba(147,197,253,.28); border-radius:999px; padding:.5rem .8rem; white-space:nowrap; font-size:.82rem; background:rgba(30,64,175,.22); }
+        .ed-chip { color:#f1c7e4; border:1px solid rgba(229,168,211,.28); border-radius:999px; padding:.5rem .8rem; white-space:nowrap; font-size:.82rem; background:rgba(126,58,102,.22); }
         .ed-section-note { color:#94a3b8; font-size:.86rem; margin-top:-.35rem; margin-bottom:.8rem; }
-        .stButton > button { border-radius:10px; border:1px solid rgba(96,165,250,.24); background:rgba(30,41,59,.72); color:#dbeafe; }
-        .stButton > button:hover { border-color:#60a5fa; color:#fff; background:rgba(37,99,235,.28); }
+        .stButton > button { border-radius:999px; border:1px solid rgba(255,255,255,.13); background:rgba(255,255,255,.055); color:#e9dce8; }
+        .stButton > button:hover { border-color:#e5a8d3; color:#fff; background:rgba(126,58,102,.28); }
         div[data-baseweb="input"] { border-radius:12px; }
         footer { visibility:hidden; }
         </style>
@@ -80,6 +87,28 @@ def _inject_ui_theme() -> None:
 
 
 _inject_ui_theme()
+
+
+def _render_sidebar() -> None:
+    """Reference-inspired navigation rail for the single-workspace dashboard."""
+    with st.sidebar:
+        st.markdown('<div class="ed-side-brand">◉ <span>Edge</span>Dash</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ed-side-card"><strong>Verified workspace</strong><br><small>Shared public dashboard</small></div>', unsafe_allow_html=True)
+        st.markdown('<div class="ed-side-label">Workspace</div>', unsafe_allow_html=True)
+        st.markdown("**◉  Overview**")
+        st.markdown("◌  Listings")
+        st.markdown("◌  Skill gaps")
+        st.markdown("◌  Activity log")
+        st.markdown('<div class="ed-side-label">Tools</div>', unsafe_allow_html=True)
+        st.markdown("◌  Ask Your Data")
+        st.markdown("◌  About EdgeDash")
+        st.markdown('<div style="height:32vh"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="ed-side-label">Links</div>', unsafe_allow_html=True)
+        st.markdown("[Source on GitHub](%s)" % REPO_URL)
+        st.markdown("[Koustav’s profile](%s)" % GITHUB_PROFILE_URL)
+
+
+_render_sidebar()
 
 
 # ---------------------------------------------------------------------------
@@ -402,9 +431,9 @@ def _render_header(db_path: str) -> None:
         """
         <div class="ed-hero">
           <div>
-            <div class="ed-kicker">Autonomous opportunity intelligence</div>
-            <div class="ed-title">EdgeDash</div>
-            <div class="ed-subtitle">A verified view of the latest listings, fit signals, and skill gaps.</div>
+            <div class="ed-kicker">Your verified opportunity workspace</div>
+            <div class="ed-title">Welcome to EdgeDash</div>
+            <div class="ed-subtitle">A live overview of listings, fit signals, and skill gaps from your latest verified cycle.</div>
           </div>
           <div class="ed-chip">Live workspace · Supabase</div>
         </div>
