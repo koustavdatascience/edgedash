@@ -97,7 +97,6 @@ def _load_gaps(db_path: str, limit: int = 10) -> list[dict[str, Any]]:
     return _v_snapshots(storage, cycle, limit=limit)
 
 
-@st.cache_data(ttl=30)
 def _load_health_report(db_path: str, backend_key: str) -> dict[str, str]:
     """Return health status message safely (rule 50 compliant)."""
     try:
