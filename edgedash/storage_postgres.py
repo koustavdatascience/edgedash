@@ -444,6 +444,22 @@ def get_cycle_log(limit: int = 50) -> list[dict[str, Any]]:
             return [dict(row) for row in cur.fetchall()]
 
 
+def last_cycle_summary() -> dict[str, Any] | None:
+    """Return the most recent cycle-log row for health checks."""
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT agent, finished_at, status, notes
+                FROM cycle_log
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
 def get_stats() -> dict[str, Any]:
     """Get database statistics."""
     with _connect() as conn:
