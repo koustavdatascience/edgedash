@@ -245,7 +245,9 @@ def _db_status(config: Any) -> str:
         return "ok"
     if not os.environ.get("DATABASE_URL"):
         return "missing"
-    return "unreachable"
+    # Presence of a URL means configuration is available; _init_storage then
+    # performs the real connection and converts any failure to "unreachable".
+    return "ok"
 
 
 def _init_storage() -> tuple[str, Any, Any | None]:
