@@ -42,7 +42,7 @@ GITHUB_PROFILE_URL = "https://github.com/koustavdatascience"
 
 st.set_page_config(
     page_title="EdgeDash",
-    page_icon="🎯",
+    page_icon="E",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -54,6 +54,7 @@ def _inject_ui_theme() -> None:
         """
         <style>
         :root { --ed-blue:#60a5fa; --ed-cyan:#22d3ee; --ed-ink:#0b1220; --ed-muted:#94a3b8; }
+        html, body, [class*="css"], .stApp { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
         .stApp { background: radial-gradient(circle at 70% 0%, #2b1b2f 0, #11121c 28%, #080a10 72%); }
         [data-testid="stHeader"] { background: transparent; }
         .block-container { max-width: 1480px; padding: 2.2rem 3rem 3rem; }
@@ -63,10 +64,13 @@ def _inject_ui_theme() -> None:
         [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color:#a8a3b0; }
         .ed-side-brand { color:#f8fafc; font-size:1.15rem; font-weight:800; letter-spacing:-.02em; padding:.35rem .6rem 1.2rem; }
         .ed-side-brand span { color:#e9a8d2; }
+        .ed-brand-mark { display:inline-flex; align-items:center; justify-content:center; width:1.35rem; height:1.35rem; margin-right:.35rem; border:1px solid #e9a8d2; border-radius:7px; color:#f8fafc; font-size:.78rem; font-weight:800; vertical-align:-.12rem; box-shadow:inset 0 0 0 3px rgba(233,168,210,.12); }
         .ed-side-label { color:#6f6a78; font-size:.68rem; font-weight:800; letter-spacing:.14em; text-transform:uppercase; padding:.85rem .65rem .35rem; }
         .ed-side-card { border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.045); border-radius:14px; padding:.75rem; margin:.35rem 0 1.25rem; }
-        h1, h2, h3 { letter-spacing: -0.025em; }
-        h2 { margin-top: .35rem; }
+        h1, h2, h3 { font-family: Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.035em; font-weight:650; }
+        h1 { font-size:2.15rem !important; }
+        h2 { margin-top:.35rem; font-size:1.45rem !important; }
+        h3 { font-size:1.1rem !important; }
         [data-testid="stMetric"] { background: rgba(15, 23, 42, .72); border: 1px solid rgba(148,163,184,.16); border-radius: 16px; padding: 1rem 1.15rem; box-shadow: 0 10px 28px rgba(0,0,0,.16); }
         [data-testid="stMetricLabel"] { color: #94a3b8; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; }
         [data-testid="stMetricValue"] { color: #f8fafc; font-weight: 750; }
@@ -93,7 +97,7 @@ _inject_ui_theme()
 def _render_sidebar() -> None:
     """Reference-inspired navigation rail for the single-workspace dashboard."""
     with st.sidebar:
-        st.markdown('<div class="ed-side-brand">◉ <span>Edge</span>Dash</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ed-side-brand"><span class="ed-brand-mark">E</span><span>Edge</span>Dash</div>', unsafe_allow_html=True)
         st.markdown('<div class="ed-side-card"><strong>Verified workspace</strong><br><small>Shared public dashboard</small></div>', unsafe_allow_html=True)
         st.markdown('<div class="ed-side-label">Workspace</div>', unsafe_allow_html=True)
         st.markdown("**▣  Overview**")
@@ -340,7 +344,7 @@ def _init_storage() -> tuple[str, Any, Any | None]:
 
 def _render_db_status(status: str, config: Any | None) -> None:
     """Static status page — a stranger never sees a traceback (rule 50)."""
-    st.title("🎯 EdgeDash")
+    st.title("EdgeDash")
 
     if status == "missing":
         st.error("**Database not configured**")
@@ -395,7 +399,7 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # 0. HEADER STRIP
     # -----------------------------------------------------------------------
-    st.title("🎯 EdgeDash")
+    st.title("EdgeDash")
     _panel("header", lambda: _render_header(db_path))
     st.divider()
 
@@ -527,7 +531,7 @@ def _render_ask_section(config: Any) -> None:
     """
     from edgedash.query.ask import ask, Answer, _daily_cap_exceeded
 
-    st.subheader("💬 Ask Your Data")
+    st.subheader("Ask Your Data")
     st.markdown('<div class="ed-section-note">Ask in plain English. Answers use only the last verified cycle and show the supporting rows.</div>', unsafe_allow_html=True)
 
     if _daily_cap_exceeded(config):
@@ -613,7 +617,7 @@ def _render_footer(db_path: str | None) -> None:
             st.caption(label)
     with fcol2:
         st.markdown(
-            f"[📦 Source]({REPO_URL}) · [GitHub profile]({GITHUB_PROFILE_URL})"
+            f"[Source]({REPO_URL}) · [GitHub profile]({GITHUB_PROFILE_URL})"
         )
 
 
