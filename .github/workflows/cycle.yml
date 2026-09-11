@@ -45,6 +45,9 @@ jobs:
         run: |
           set -o pipefail
           python run_cycle.py 2>&1 | tee cycle.log
+          # The first pass bootstraps fresh listings; the second idempotent
+          # pass scores and verifies those listings before health evaluation.
+          python run_cycle.py 2>&1 | tee -a cycle.log
 
       - name: Upload cycle log artifact
         if: always()
@@ -61,4 +64,3 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python -m edgedash.health
-
