@@ -222,6 +222,19 @@ def _row_style(status: str) -> str:
 # Hostile-startup guards (rule 50)
 # ---------------------------------------------------------------------------
 
+def _load_streamlit_secrets() -> None:
+    """Bridge Streamlit Cloud secrets to the app's normal environment contract."""
+    for key in ("DATABASE_URL", "GEMINI_API_KEY", "EDGEDASH_ENV"):
+        if os.environ.get(key):
+            continue
+        try:
+            value = st.secrets.get(key)
+        except Exception:
+            value = None
+        if value:
+            os.environ[key] = str(value)
+
+
 def _db_status(config: Any) -> str:
     """Return 'ok' | 'missing' | 'unreachable' for the active deploy.
 
@@ -237,6 +250,7 @@ def _db_status(config: Any) -> str:
 
 def _init_storage() -> tuple[str, Any, Any | None]:
     """(status, config, storage) — never raises. Detail is logged server-side."""
+    _load_streamlit_secrets()
     try:
         config = load_config()
     except Exception:
