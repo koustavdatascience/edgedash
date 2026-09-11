@@ -10,7 +10,9 @@ jobs:
   cycle:
     name: Run Cycle
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Real Gemini extraction/scoring is rate-limited to stay within free-tier
+    # limits; allow the initial bootstrap pass to complete before health runs.
+    timeout-minutes: 20
 
     steps:
       - name: Checkout code
