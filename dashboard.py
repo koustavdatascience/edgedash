@@ -98,7 +98,7 @@ def _load_gaps(db_path: str, limit: int = 10) -> list[dict[str, Any]]:
 
 
 @st.cache_data(ttl=30)
-def _load_health_report(db_path: str) -> dict[str, str]:
+def _load_health_report(db_path: str, backend_key: str) -> dict[str, str]:
     """Return health status message safely (rule 50 compliant)."""
     try:
         config = load_config()
@@ -362,7 +362,8 @@ def main() -> None:
 
 
 def _render_header(db_path: str) -> None:
-    health = _load_health_report(db_path)
+    backend_key = "postgres" if os.environ.get("DATABASE_URL") else "sqlite"
+    health = _load_health_report(db_path, backend_key)
     st.markdown(health.get("message", "⚪ Health status unavailable"))
 
     last_passing = _load_last_passing_cycle(db_path)
