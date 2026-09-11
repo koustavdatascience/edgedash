@@ -33,6 +33,7 @@ from edgedash.verified import (
 logger = logging.getLogger("edgedash.dashboard")
 
 REPO_URL = "https://github.com/koustavdatascience/edgedash"
+GITHUB_PROFILE_URL = "https://github.com/koustavdatascience"
 
 
 # ---------------------------------------------------------------------------
@@ -548,6 +549,24 @@ def _render_ask_section(config: Any) -> None:
 
 
 def _render_footer(db_path: str | None) -> None:
+    with st.expander("About EdgeDash"):
+        st.markdown(
+            """
+            **EdgeDash** is an autonomous opportunity-intelligence dashboard for discovering,
+            scoring, and verifying job listings. It collects listings, evaluates their fit,
+            analyzes skill gaps, and stores only the latest verified results for the dashboard.
+
+            Visitors can browse the shared listings and ask questions through **Ask Your Data**.
+            The public dashboard is read-only: visitors cannot change the configured skills,
+            scoring rules, listings, or Supabase data. Anyone who wants a personalized version
+            can fork the source code, connect their own Supabase project and API keys, and
+            deploy an independent copy.
+
+            **Project links:** [GitHub repository](https://github.com/koustavdatascience/edgedash) ·
+            [Koustav’s GitHub profile](https://github.com/koustavdatascience)
+            """
+        )
+
     st.divider()
     fcol1, fcol2 = st.columns([3, 1])
     with fcol1:
@@ -561,7 +580,9 @@ def _render_footer(db_path: str | None) -> None:
             label = f"Last verified cycle: **{_fmt_ts(ts)}**" if ts else "Last verified cycle: **never**"
             st.caption(label)
     with fcol2:
-        st.markdown(f"[📦 Source on GitHub]({REPO_URL})")
+        st.markdown(
+            f"[📦 Source]({REPO_URL}) · [GitHub profile]({GITHUB_PROFILE_URL})"
+        )
 
 
 # ---------------------------------------------------------------------------
