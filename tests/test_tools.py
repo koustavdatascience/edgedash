@@ -21,6 +21,7 @@ from edgedash.query.tools import (
     trend,
     listing_count,
     skill_demand,
+    score_distribution,
     _clamp_int,
     _canonical_skill_or_empty,
 )
@@ -618,12 +619,106 @@ class TestSkillDemand:
 
 
 # ---------------------------------------------------------------------------
+# score_distribution  — custom tool (class 4.1: "one tool of your own")
+# ---------------------------------------------------------------------------
+
+
+class TestScoreDistribution:
+    def test_all_high_scores_in_top_bucket(self, mock_storage):
+        storage, cfg = mock_storage
+        import edgedash.query.tools as tools
+
+        orig = tools._get_storage_and_config
+        tools._get_storage_and_config = lambda: (storage, cfg)
+        try:
+            r = score_distribution()
+            assert r["summary"]  # not empty
+            # All 4 listings scored 85 → should be in 81-100 bucket
+            buckets = {row["bucket"]: row["count"] for row in r["rows"]}
+            assert buckets.get("81-100") == 4
+            assert buckets.get("61-80") is None
+        finally:
+            tools._get_storage_and_config = orig
+
+    def test_mixed_scores_spread_across_buckets(self, mock_storage):
+        storage, cfg = mock_storage
+        import edgedash.query.tools as tools
+
+        # Re-score the 4 listings into different buckets: 15, 35, 55, 90
+        scores = [15, 35, 55, 90]
+        for r in storage.get_listings(10, 0):
+            lid = r["id"]
+            storage.update_listing_score(
+                lid, scores.pop(0), "test", {"skill_match": 1.0, "seniority_fit": 1.0, "location_fit": 1.0, "recency": 1.0, "gaps": []}
+            )
+
+        # Re-scored rows carry scored_at AFTER the original boundary (rule 38).
+        # Log a fresh passing cycle so the new scores are verified again.
+        passed_at = (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat()
+        storage.log_cycle(
+            "verifier", passed_at, passed_at, 0, "ok",
+            "VERDICT: pass — all checks passed",
+        )
+
+        orig = tools._get_storage_and_config
+        tools._get_storage_and_config = lambda: (storage, cfg)
+        try:
+            r = score_distribution()
+            buckets = {row["bucket"]: row["count"] for row in r["rows"]}
+            assert buckets.get("0-20") == 1
+            assert buckets.get("21-40") == 1
+            assert buckets.get("41-60") == 1
+            assert buckets.get("81-100") == 1
+            assert len(r["rows"]) == 4
+        finally:
+            tools._get_storage_and_config = orig
+
+    def test_no_passing_cycle_returns_empty(self, temp_db):
+        _, storage, cfg = temp_db
+        import edgedash.query.tools as tools
+
+        # Re-init storage with no verifier log
+        import edgedash.storage as st_mod
+        tmp_path = temp_db[0]
+
+        orig = tools._get_storage_and_config
+        tools._get_storage_and_config = lambda: (storage, cfg)
+        try:
+            # Directly patch last_passing_cycle to return None
+            orig_fn = storage.get_last_passing_cycle
+            storage.get_last_passing_cycle = lambda: None
+            try:
+                r = score_distribution()
+                assert r["rows"] == []
+                assert "no passing cycle" in r["summary"]
+            finally:
+                storage.get_last_passing_cycle = orig_fn
+        finally:
+            tools._get_storage_and_config = orig
+
+    def test_n_clamped_to_bounds(self, mock_storage):
+        storage, cfg = mock_storage
+        import edgedash.query.tools as tools
+
+        orig = tools._get_storage_and_config
+        tools._get_storage_and_config = lambda: (storage, cfg)
+        try:
+            r_high = score_distribution(n=999)
+            assert len(r_high["rows"]) <= 25  # capped at 25
+
+            r_low = score_distribution(n=0)
+            assert len(r_low["rows"]) >= 1  # clamped to 1
+        finally:
+            tools._get_storage_and_config = orig
+
+
+# ---------------------------------------------------------------------------
 # Registry completeness
 # ---------------------------------------------------------------------------
 
 
 class TestRegistry:
-    def test_seven_tools_registered(self):
+    def test_eight_tools_registered(self):
         expected = {
             "companies_hiring",
             "best_matches",
@@ -632,6 +727,7 @@ class TestRegistry:
             "trend",
             "listing_count",
             "skill_demand",
+            "score_distribution",
         }
         assert set(TOOLS.keys()) == expected
 

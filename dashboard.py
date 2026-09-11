@@ -24,6 +24,11 @@ import streamlit as st
 
 from edgedash.config import load_config
 from edgedash.storage_factory import get_storage_module, init_db
+from edgedash.verified import (
+    last_passing_cycle,
+    verified_listings as _v_listings,
+    latest_snapshot_as_of as _v_snapshots,
+)
 
 logger = logging.getLogger("edgedash.dashboard")
 
@@ -69,16 +74,27 @@ def _load_cycle_log(db_path: str, limit: int = 30) -> list[dict[str, Any]]:
 
 @st.cache_data(ttl=30)
 def _load_listings(db_path: str, limit: int, min_score: int) -> list[dict[str, Any]]:
+    """Return scored listings from the last passing cycle only (rule 38)."""
     config = load_config()
     storage = get_storage_module(config)
-    return storage.get_listings(limit, min_score)
+    cycle = last_passing_cycle(storage)
+    if cycle is None:
+        return []
+    all_verified = _v_listings(storage, cycle, limit=5000)
+    scored = [r for r in all_verified if r.get("fit_score") is not None and r["fit_score"] >= min_score]
+    scored.sort(key=lambda r: (-int(r.get("fit_score") or 0), str(r.get("title") or "").lower()))
+    return scored[:limit]
 
 
 @st.cache_data(ttl=30)
 def _load_gaps(db_path: str, limit: int = 10) -> list[dict[str, Any]]:
+    """Return skill gaps from the last passing cycle only (rule 38)."""
     config = load_config()
     storage = get_storage_module(config)
-    return storage.get_latest_snapshot(limit=limit)
+    cycle = last_passing_cycle(storage)
+    if cycle is None:
+        return []
+    return _v_snapshots(storage, cycle, limit=limit)
 
 
 @st.cache_data(ttl=30)
@@ -319,6 +335,13 @@ def main() -> None:
     with col_gaps:
         _panel("gaps", lambda: _render_gaps_panel(db_path, config))
 
+    st.divider()
+
+    # -----------------------------------------------------------------------
+    # 4. ASK YOUR DATA — rules 42-45
+    # -----------------------------------------------------------------------
+    _panel("ask", lambda: _render_ask_section(config))
+
     _render_footer(db_path)
 
 
@@ -389,6 +412,77 @@ def _empty_state_caption(config: Any) -> None:
     nxt = _next_run_datetime(config)
     when = f"**{_fmt_ts(nxt)}**" if nxt else "as scheduled"
     st.caption(f"No data yet — the first scheduled run is {when}.")
+
+
+_ASK_EXAMPLES = [
+    "Show me the best matches",
+    "How many companies are hiring",
+    "What skills are in demand for Python",
+]
+
+
+def _render_ask_section(config: Any) -> None:
+    """Ask-your-data box — rules 42-45, integrated into the dashboard.
+
+    The model routes once and phrases once (rule 42). Every answer shows the
+    rows that produced it (rule 44). Refusals list what CAN be asked (rule 45).
+    """
+    from edgedash.query.ask import ask, Answer, _daily_cap_exceeded
+
+    st.subheader("💬 Ask Your Data")
+    st.caption(
+        "Ask a question in plain English. Answers come from the last verified "
+        "cycle's data only, with the underlying rows shown alongside."
+    )
+
+    if _daily_cap_exceeded(config):
+        cap = getattr(config, "daily_question_cap", 200)
+        st.info(
+            f"Daily question limit reached ({cap} questions). "
+            "The ask box is temporarily disabled. Dashboard data is unchanged."
+        )
+        return
+
+    clicked = None
+    cols = st.columns(len(_ASK_EXAMPLES))
+    for col, example in zip(cols, _ASK_EXAMPLES):
+        if col.button(example, use_container_width=True):
+            clicked = example
+
+    question = st.text_input(
+        "Enter your question:",
+        value=clicked or st.session_state.get("last_question", ""),
+        placeholder="e.g. Show me the best matches",
+    )
+
+    if not question:
+        return
+
+    st.session_state.last_question = question
+    with st.spinner("Routing and executing query..."):
+        try:
+            answer: Answer = ask(question)
+        except Exception:
+            logger.exception("dashboard: ask question failed")
+            st.error(
+                "The system could not answer that question. "
+                "The detail was recorded in the server log."
+            )
+            return
+
+    st.markdown("### Answer")
+    st.markdown(answer.text)
+
+    if not answer.rows:
+        st.info("No results found.")
+    else:
+        st.markdown(f"**Showing {len(answer.rows)} result(s):**")
+        st.dataframe(answer.rows, hide_index=True)
+
+    if answer.tool_used:
+        st.caption(f"Answered using the '{answer.tool_used}' tool.")
+    else:
+        st.caption("No tool matched — the data does not contain this answer.")
 
 
 def _render_footer(db_path: str | None) -> None:

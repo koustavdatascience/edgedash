@@ -25,10 +25,20 @@ Rule 2: all reads go through the storage module. No direct sqlite3.
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
 from edgedash.skills import canonical
+from edgedash.verified import (
+    _as_of,
+    _all_listings,
+    _last_passing_cycle,
+    _latest_snapshot_as_of,
+    _parse_timestamp,
+    _snapshot_runs_as_of,
+    _verified_facts,
+    _verified_listings,
+)
 
 # ---------------------------------------------------------------------------
 # Registry
@@ -113,165 +123,7 @@ def _get_storage_and_config():
     return storage, config
 
 
-def _last_passing_cycle(storage: Any) -> dict[str, Any] | None:
-    """Return the verified-cycle boundary used by every query tool."""
-    try:
-        cycle = storage.get_last_passing_cycle()
-        if not cycle or _parse_timestamp(cycle.get("finished_at")) is None:
-            return None
-        return cycle
-    except Exception:
-        return None
-
-
-def _parse_timestamp(raw: Any) -> datetime | None:
-    """Parse listing posted_at / fetched_at to tz-aware datetime, or None."""
-    if raw is None:
-        return None
-    if isinstance(raw, (int, float)):
-        try:
-            return datetime.fromtimestamp(float(raw), tz=timezone.utc)
-        except Exception:
-            return None
-    if isinstance(raw, str):
-        s = raw.strip()
-        if not s:
-            return None
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        try:
-            dt = datetime.fromisoformat(s)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt
-        except ValueError:
-            pass
-        # date-only YYYY-MM-DD
-        try:
-            dt = datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            return dt
-        except ValueError:
-            return None
-    return None
-
-
-def _as_of(raw: Any, boundary: datetime) -> bool:
-    """True when a timestamp is absent (legacy row) or not after boundary."""
-    parsed = _parse_timestamp(raw)
-    return parsed is None or parsed <= boundary
-
-
-def _verified_listings(
-    storage: Any, cycle: dict[str, Any], limit: int = 5000
-) -> list[dict[str, Any]]:
-    """Return listings exactly as they were known at the last passing cycle.
-
-    Listings fetched after the boundary are excluded. A score written after the
-    boundary is treated as not-yet-scored. Rows predating the ``scored_at``
-    migration remain usable because their missing timestamp is legacy data.
-    """
-    boundary = _parse_timestamp(cycle.get("finished_at"))
-    if boundary is None:
-        return []
-
-    verified: list[dict[str, Any]] = []
-    for raw in _all_listings(storage, limit=limit):
-        if not _as_of(raw.get("fetched_at"), boundary):
-            continue
-        row = dict(raw)
-        if row.get("fit_score") is not None and not _as_of(row.get("scored_at"), boundary):
-            row["fit_score"] = None
-            row["fit_reason"] = None
-            row["fit_components"] = None
-        verified.append(row)
-    return verified
-
-
-def _verified_facts(
-    storage: Any, cycle: dict[str, Any], listing_ids: set[str]
-) -> list[dict[str, Any]]:
-    """Return extracted facts belonging to verified, scored listings only."""
-    boundary = _parse_timestamp(cycle.get("finished_at"))
-    if boundary is None:
-        return []
-    try:
-        facts = storage.get_scored_listings_with_extractions(limit=5000)
-    except Exception:
-        return []
-    return [
-        dict(row)
-        for row in facts
-        if row.get("id") in listing_ids
-        and _as_of(row.get("scored_at"), boundary)
-        and _as_of(row.get("extracted_at"), boundary)
-    ]
-
-
-def _snapshot_runs_as_of(
-    storage: Any, cycle: dict[str, Any]
-) -> list[dict[str, Any]]:
-    """Return gap-snapshot runs up to the verified-cycle boundary."""
-    boundary = _parse_timestamp(cycle.get("finished_at"))
-    if boundary is None:
-        return []
-    try:
-        runs = storage.get_distinct_snapshot_runs()
-    except Exception:
-        return []
-    return [
-        dict(run)
-        for run in runs
-        if (ts := _parse_timestamp(run.get("computed_at"))) is not None
-        and ts <= boundary
-    ]
-
-
-def _latest_snapshot_as_of(
-    storage: Any, cycle: dict[str, Any], limit: int
-) -> list[dict[str, Any]]:
-    runs = _snapshot_runs_as_of(storage, cycle)
-    if not runs:
-        return []
-    latest = max(runs, key=lambda run: _parse_timestamp(run["computed_at"]))
-    try:
-        return storage.get_snapshot_by_run_id(latest["run_id"])[:limit]
-    except Exception:
-        return []
-
-
-def _all_listings(storage: Any, limit: int = 5000) -> list[dict[str, Any]]:
-    """Fetch all listings regardless of score, via storage module only.
-
-    Uses get_all_listings if available (new helper), otherwise falls back to
-    combining scored + unscored listings — still storage-only, no sqlite3.
-    """
-    if hasattr(storage, "get_all_listings"):
-        try:
-            return storage.get_all_listings(limit=limit)
-        except Exception:
-            pass
-    # Fallback: combine scored (any score) + unscored
-    rows: list[dict[str, Any]] = []
-    try:
-        rows.extend(storage.get_listings(limit=limit, min_score=0))
-    except Exception:
-        pass
-    try:
-        # get_unscored_listings returns up to limit as well
-        rows.extend(storage.get_unscored_listings(limit=limit))
-    except Exception:
-        pass
-    # Deduplicate by id in case of overlap (should not happen)
-    seen: set[str] = set()
-    deduped: list[dict[str, Any]] = []
-    for r in rows:
-        lid = r.get("id")
-        if lid and lid in seen:
-            continue
-        if lid:
-            seen.add(lid)
-        deduped.append(r)
-    return deduped
+_strip_ts = _parse_timestamp  # noqa: N816  (kept for callers that used the raw name)
 
 
 # ---------------------------------------------------------------------------
@@ -920,3 +772,92 @@ def skill_demand(skill: str) -> dict[str, Any]:
         f"{required_count + nice_count} total listing{'s' if (required_count + nice_count) != 1 else ''}"
     )
     return {"rows": [row], "summary": summary}
+
+
+# ---------------------------------------------------------------------------
+# 8. score_distribution  — custom tool (class 4.1: "one tool of your own")
+# ---------------------------------------------------------------------------
+
+
+@tool(
+    description=(
+        "Distribution of fit scores across scored listings, bucketed by 20-point "
+        "bands (0-20, 21-40, 41-60, 61-80, 81-100). Use this when the user asks "
+        "how many jobs are strong matches, how scores are spread out, whether most "
+        "listings score high or low, or wants a histogram/overview of the fit "
+        "landscape. Do NOT use for individual top matches (use best_matches), "
+        "specific skills, company breakdowns, or gap rankings."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "n": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 25,
+                "default": 5,
+                "description": "Number of buckets to return. Clamped to 1-25.",
+            }
+        },
+        "required": [],
+    },
+)
+def score_distribution(n: int = 5) -> dict[str, Any]:
+    """Return fit-score buckets: {bucket label, count, pct} for verified listings.
+
+    Parameters
+    ----------
+    n: Bucket width is fixed at 20 points; this tool returns the top-N buckets
+       ordered by count. Clamped to [1, 25]; non-numeric -> 5.
+
+    Returns
+    -------
+    {"rows": [{"bucket": "41-60", "count": int, "pct": float}, ...],
+     "summary": str}
+    Sorted by count DESC then bucket ASC. Gated on last passing cycle (rule 46).
+    """
+    n = _clamp_int(n, 1, 25, 5)
+    storage, _ = _get_storage_and_config()
+
+    cycle = _last_passing_cycle(storage)
+    if cycle is None:
+        return {"rows": [], "summary": "no verified data yet — no passing cycle"}
+
+    scored = [
+        row for row in _verified_listings(storage, cycle)
+        if row.get("fit_score") is not None
+    ]
+
+    if not scored:
+        return {"rows": [], "summary": "no scored listings in the verified cycle"}
+
+    buckets: Counter[str] = Counter()
+    for row in scored:
+        s = int(row.get("fit_score") or 0)
+        if s >= 81:
+            buckets["81-100"] += 1
+        elif s >= 61:
+            buckets["61-80"] += 1
+        elif s >= 41:
+            buckets["41-60"] += 1
+        elif s >= 21:
+            buckets["21-40"] += 1
+        else:
+            buckets["0-20"] += 1
+
+    total = len(scored)
+    rows = [
+        {
+            "bucket": label,
+            "count": count,
+            "pct": round(count / total * 100, 1),
+        }
+        for label, count in sorted(buckets.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+
+    summary = (
+        f"{total} scored listing{'s' if total != 1 else ''} "
+        f"across {len(rows)} score bucket{'s' if len(rows) != 1 else ''}; "
+        f"median bucket '{rows[0]['bucket']}' holds the most listings"
+    )
+    return {"rows": rows, "summary": summary}

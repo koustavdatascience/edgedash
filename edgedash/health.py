@@ -277,7 +277,7 @@ def evaluate_health(storage: Any, now: datetime | None = None) -> SystemHealthRe
 def run_cli() -> None:
     """CLI handler for `python -m edgedash.health`."""
     parser = argparse.ArgumentParser(description="EdgeDash System Health Check")
-    _ = parser.parse_args()
+    _ = parser.parse_args([])
 
     try:
         config = load_config()

@@ -3,3 +3,4 @@ python-dotenv==1.2.3
 schedule==1.2.2
 streamlit==1.63.0
 psycopg2-binary==2.9.12
+pytest==8.4.2
