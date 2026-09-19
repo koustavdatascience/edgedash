@@ -43,7 +43,7 @@ def inject_css() -> None:
     .ed-nav { height:50px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); margin-bottom:18px; }
     .brand { display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:-.045em; color:var(--ink); text-decoration:none; }
     .brand-mark { width:25px; height:25px; display:grid; place-items:center; color:#fff; background:var(--blue); border-radius:8px; font-size:17px; }
-    .nav-links { display:flex; gap:28px; margin-left:75px; color:#475467; font-size:12px; } .nav-links a { color:inherit; text-decoration:none; }
+    .nav-links { display:flex; gap:24px; margin-left:auto; margin-right:28px; color:#475467; font-size:12px; } .nav-links a { color:inherit; text-decoration:none; }
     .nav-install { color:var(--ink); background:rgba(255,255,255,.66); border:1px solid rgba(21,94,239,.18); border-radius:999px; padding:9px 15px; font-size:12px; box-shadow:0 5px 18px rgba(16,24,40,.06); text-decoration:none; } .menu-wrap { position:relative; } .menu-wrap summary { list-style:none; cursor:pointer; display:grid; place-items:center; width:42px; height:36px; border:1px solid rgba(21,94,239,.18); border-radius:12px; background:rgba(255,255,255,.66); box-shadow:0 5px 18px rgba(16,24,40,.06); } .menu-wrap summary::-webkit-details-marker { display:none; } .hamburger,.hamburger:before,.hamburger:after { display:block; width:16px; height:1.5px; background:var(--blue); content:''; } .hamburger { position:relative; } .hamburger:before { position:absolute; top:-5px; } .hamburger:after { position:absolute; top:5px; } .menu-pop { position:absolute; z-index:10; top:46px; right:0; width:190px; padding:7px; border:1px solid rgba(21,94,239,.16); border-radius:14px; background:rgba(255,255,255,.78); backdrop-filter:blur(18px); box-shadow:0 18px 40px rgba(16,24,40,.12); } .menu-pop a { display:block; padding:11px 12px; color:var(--ink); border-radius:9px; text-decoration:none; font-size:12px; } .menu-pop a:hover { color:var(--blue); background:rgba(21,94,239,.08); }
     .hero { position:relative; overflow:hidden; border-radius:20px; display:block; background:#cdd7dc; box-shadow:0 20px 60px rgba(16,24,40,.12); }
     .hero-img { position:relative; inset:auto; display:block; width:100%; height:auto; min-width:0; min-height:0; object-fit:cover; object-position:center; filter:saturate(.82) contrast(.96); } .hero:after { content:''; position:absolute; inset:0; background:linear-gradient(180deg,rgba(7,29,64,.04) 30%,rgba(7,24,52,.7) 100%); }
@@ -61,7 +61,7 @@ def inject_css() -> None:
     .footer { border-top:1px solid var(--line); margin-top:92px; padding-top:25px; display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:11px; } .footer .cta-primary { background:var(--blue); color:#fff; } .docs-hero { background:linear-gradient(135deg,#0e1b35 0%,#123d89 100%); color:#fff; border-radius:20px; padding:42px; box-shadow:0 20px 60px rgba(9,30,66,.14); } .docs-hero .section-label { color:#9fc2ff; } .docs-hero h1 { margin:0 0 14px; } .docs-hero p { color:#d7e5ff; max-width:570px; line-height:1.55; margin:0; } .docs-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; } .docs-card { min-height:180px; } .docs-card h3 { margin:8px 0 10px; } .flow { display:grid; grid-template-columns:repeat(5,1fr); gap:0; margin-top:24px; } .flow-step { position:relative; padding:16px 12px; background:#eef3f8; border:1px solid var(--line); font-size:11px; } .flow-step:not(:last-child):after { content:'→'; position:absolute; z-index:1; right:-8px; top:29px; color:var(--blue); font-weight:700; } .flow-step strong { display:block; margin-top:12px; font-size:12px; } .dash-shell { background:#0e1b35; color:#fff; border-radius:20px; padding:24px; box-shadow:0 20px 60px rgba(9,30,66,.14); } .dash-nav { display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,.12); padding-bottom:18px; margin-bottom:18px; } .dash-metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; } .dash-metric { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:17px; } .dash-metric b { display:block; font-size:30px; margin:10px 0 2px; } .dash-metric span { color:#91a3c0; font:10px 'DM Mono',monospace; text-transform:uppercase; }
     @media (max-width:760px) { .block-container { padding:0 16px 48px; } .hero-copy { padding:28px 24px; } .step-grid,.feature-grid,.proof-grid,.proof-stats,.docs-grid,.dash-metrics { grid-template-columns:1fr; } .docs-hero { padding:28px 24px; } .flow { grid-template-columns:1fr; } .flow-step:not(:last-child):after { content:'↓'; right:auto; left:18px; top:auto; bottom:-10px; } .step-card:not(:last-child):after { width:1px; height:10px; right:auto; left:34px; top:auto; bottom:-10px; } .signal-strip { grid-template-columns:1fr 1fr; } .signal:nth-child(3) { border-left:0; border-top:1px solid var(--line); } .signal:nth-child(4) { border-top:1px solid var(--line); } .final-cta { display:block; padding:28px 24px; } .final-cta .cta { margin-top:20px; } .section { padding-top:58px; } .section-head { display:block; } .section-note { text-align:left; margin-top:12px; } .footer { display:block; } .footer .cta { margin-top:18px; } }
     /* Editorial landing replacement: image-first hero matching the approved page */
-    .ed-nav { position:relative; z-index:3; margin:0 0 18px; padding:0 14px; height:44px; border:1px solid rgba(255,255,255,.28); border-radius:12px; background:rgba(255,255,255,.72); backdrop-filter:blur(16px); box-shadow:0 8px 28px rgba(16,24,40,.08); }
+    .ed-nav { position:relative; z-index:3; margin:0 0 22px; padding:0 18px; height:58px; border:1px solid rgba(255,255,255,.28); border-radius:14px; background:rgba(255,255,255,.72); backdrop-filter:blur(16px); box-shadow:0 8px 28px rgba(16,24,40,.08); }
     .brand-mark { color:#fff; background:#171717; }
     .hero { margin:0; min-height:min(68vh,620px); border-radius:20px; box-shadow:0 20px 60px rgba(16,24,40,.12); display:flex; justify-content:flex-end; }
     .hero:after { display:block; background:linear-gradient(180deg,rgba(7,29,64,.05) 22%,rgba(7,24,52,.84) 100%); }
@@ -72,24 +72,13 @@ def inject_css() -> None:
     .hero-copy .hero-sub { color:rgba(255,255,255,.86); font-size:15px; max-width:440px; margin:0 0 22px; }
     .hero-copy .cta-primary { color:var(--blue-dark); background:#fff; }
     .hero-copy .text-link { color:#fff; }
-    @media (max-width:760px) { .ed-nav { margin:0 0 12px; } .hero { margin:0; min-height:560px; } .hero-copy { padding:28px 24px 30px; } .hero-copy h1 { font-size:49px; } }
+    @media (max-width:760px) { .ed-nav { margin:0 0 12px; } .nav-links { display:none; } .hero { margin:0; min-height:560px; } .hero-copy { padding:28px 24px 30px; } .hero-copy h1 { font-size:49px; } }
     </style>
     """, unsafe_allow_html=True)
 
 
 def render_nav() -> None:
-    left, right = st.columns([8, 1], gap="small", vertical_alignment="center")
-    with left:
-        st.markdown('<div class="ed-nav"><a class="brand" href="#top"><span class="brand-mark">✦</span><span>EdgeDash</span></a></div>', unsafe_allow_html=True)
-    with right:
-        if "menu_open" not in st.session_state:
-            st.session_state.menu_open = False
-        if st.button("☰", key="menu_toggle", use_container_width=True):
-            st.session_state.menu_open = not st.session_state.menu_open
-        if st.session_state.menu_open:
-            st.link_button("Documentation", "?page=docs", use_container_width=True)
-            st.link_button("Dashboard", DASHBOARD_URL, use_container_width=True)
-            st.link_button("GitHub", "https://github.com/koustavdatascience/edgedash", use_container_width=True)
+    st.markdown(f'<nav class="ed-nav"><a class="brand" href="#top"><span class="brand-mark">✦</span><span>EdgeDash</span></a><div class="nav-links"><a href="#features">Features</a><a href="{DASHBOARD_URL}">Dashboard</a><a href="#how">How it works</a><a href="#features">About</a><a href="https://github.com/koustavdatascience/edgedash" target="_blank" rel="noreferrer">GitHub</a></div><a class="nav-install" href="{DASHBOARD_URL}">Open dashboard</a></nav>', unsafe_allow_html=True)
 
 
 def render_hero() -> None:
@@ -110,7 +99,7 @@ def render_how() -> None:
 
 def render_proof(data: dict[str, Any]) -> None:
     proof = img_data(ROOT / "assets" / "live-proof.webp")
-    st.markdown(f'<section class="section" id="proof"><img class="proof-image" src="{proof}" loading="lazy" alt="EdgeDash live dashboard showing verified job matches and skill gaps"/><div style="display:flex;justify-content:space-between;gap:20px;margin-top:14px;color:var(--muted);font:10px DM Mono,monospace"><span>● LIVE DASHBOARD, UPDATED DAILY</span><span>READ-ONLY</span></div></section>', unsafe_allow_html=True)
+    st.markdown(f'<section class="section" id="proof"><div class="reference-proof"><div class="reference-proof-copy"><div class="section-label">Live proof</div><h2>See it<br/><em>in action.</em></h2><p>See today’s job matches and skill gaps in the live dashboard.</p><a class="reference-link" href="{DASHBOARD_URL}">Open the live workspace&nbsp; ↗</a></div><div><img class="proof-image" src="{proof}" loading="lazy" alt="EdgeDash live dashboard showing verified job matches and skill gaps"/></div></div><div style="display:flex;justify-content:space-between;gap:20px;margin-top:14px;color:var(--muted);font:10px DM Mono,monospace"><span>● LIVE DASHBOARD, UPDATED DAILY</span><span>READ-ONLY</span></div></section>', unsafe_allow_html=True)
 
 
 def render_features() -> None:
