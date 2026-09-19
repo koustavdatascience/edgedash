@@ -39,7 +39,7 @@ def inject_css() -> None:
     :root { --ink:#101828; --muted:#667085; --blue:#155eef; --blue-dark:#0b3baf; --line:#dbe2ea; --paper:#f8fafc; }
     .stApp { background:var(--paper); color:var(--ink); font-family:'DM Sans',sans-serif; }
     .block-container { max-width:1180px; padding:0 32px 72px; }
-    header[data-testid="stHeader"] { background:transparent; } [data-testid="stToolbar"] { display:none; }
+    header[data-testid="stHeader"] { background:transparent; height:0; } [data-testid="stToolbar"] { display:none; } #MainMenu { visibility:hidden; }
     .ed-nav { height:50px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); margin-bottom:18px; }
     .brand { display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:-.045em; color:var(--ink); text-decoration:none; }
     .brand-mark { width:25px; height:25px; display:grid; place-items:center; color:#fff; background:var(--blue); border-radius:8px; font-size:17px; }
@@ -61,24 +61,24 @@ def inject_css() -> None:
     .footer { border-top:1px solid var(--line); margin-top:92px; padding-top:25px; display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:11px; } .footer .cta-primary { background:var(--blue); color:#fff; } .docs-hero { background:linear-gradient(135deg,#0e1b35 0%,#123d89 100%); color:#fff; border-radius:20px; padding:42px; box-shadow:0 20px 60px rgba(9,30,66,.14); } .docs-hero .section-label { color:#9fc2ff; } .docs-hero h1 { margin:0 0 14px; } .docs-hero p { color:#d7e5ff; max-width:570px; line-height:1.55; margin:0; } .docs-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; } .docs-card { min-height:180px; } .docs-card h3 { margin:8px 0 10px; } .flow { display:grid; grid-template-columns:repeat(5,1fr); gap:0; margin-top:24px; } .flow-step { position:relative; padding:16px 12px; background:#eef3f8; border:1px solid var(--line); font-size:11px; } .flow-step:not(:last-child):after { content:'→'; position:absolute; z-index:1; right:-8px; top:29px; color:var(--blue); font-weight:700; } .flow-step strong { display:block; margin-top:12px; font-size:12px; } .dash-shell { background:#0e1b35; color:#fff; border-radius:20px; padding:24px; box-shadow:0 20px 60px rgba(9,30,66,.14); } .dash-nav { display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,.12); padding-bottom:18px; margin-bottom:18px; } .dash-metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; } .dash-metric { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:17px; } .dash-metric b { display:block; font-size:30px; margin:10px 0 2px; } .dash-metric span { color:#91a3c0; font:10px 'DM Mono',monospace; text-transform:uppercase; }
     @media (max-width:760px) { .block-container { padding:0 16px 48px; } .hero-copy { padding:28px 24px; } .step-grid,.feature-grid,.proof-grid,.proof-stats,.docs-grid,.dash-metrics { grid-template-columns:1fr; } .docs-hero { padding:28px 24px; } .flow { grid-template-columns:1fr; } .flow-step:not(:last-child):after { content:'↓'; right:auto; left:18px; top:auto; bottom:-10px; } .step-card:not(:last-child):after { width:1px; height:10px; right:auto; left:34px; top:auto; bottom:-10px; } .signal-strip { grid-template-columns:1fr 1fr; } .signal:nth-child(3) { border-left:0; border-top:1px solid var(--line); } .signal:nth-child(4) { border-top:1px solid var(--line); } .final-cta { display:block; padding:28px 24px; } .final-cta .cta { margin-top:20px; } .section { padding-top:58px; } .section-head { display:block; } .section-note { text-align:left; margin-top:12px; } .footer { display:block; } .footer .cta { margin-top:18px; } }
     /* Editorial landing replacement: image-first hero matching the approved page */
-    .ed-nav { position:relative; z-index:3; margin:0 0 22px; padding:0 18px; height:58px; border:1px solid rgba(255,255,255,.28); border-radius:14px; background:rgba(255,255,255,.72); backdrop-filter:blur(16px); box-shadow:0 8px 28px rgba(16,24,40,.08); }
+    .ed-nav { position:relative; z-index:3; margin:0 0 20px; padding:0 18px; height:58px; border:1px solid rgba(255,255,255,.28); border-radius:14px; background:rgba(255,255,255,.72); backdrop-filter:blur(16px); box-shadow:0 8px 28px rgba(16,24,40,.08); }
     .brand-mark { color:#fff; background:#171717; }
-    .hero { margin:0; min-height:min(68vh,620px); border-radius:20px; box-shadow:0 20px 60px rgba(16,24,40,.12); display:flex; justify-content:flex-end; }
+    .hero { position:relative; overflow:hidden; margin:0; height:min(68vh,620px); min-height:0; border-radius:20px; box-shadow:0 20px 60px rgba(16,24,40,.12); display:flex; justify-content:flex-end; background:#0e1b35; }
     .hero:after { display:block; background:linear-gradient(180deg,rgba(7,29,64,.05) 22%,rgba(7,24,52,.84) 100%); }
-    .hero-img { position:absolute; inset:0; width:100%; height:100%; min-width:100%; min-height:100%; object-fit:cover; filter:none; object-position:center; }
+    .hero-img { position:absolute; top:0; right:0; bottom:0; left:0; display:block; width:100%; height:100%; min-width:0; min-height:0; object-fit:cover; filter:none; object-position:center; }
     .hero-copy { position:relative; z-index:1; width:100%; max-width:none; padding:42px 44px 46px; color:#fff; }
     .hero-copy .eyebrow { color:#d6e5ff; display:block; }
     .hero-copy h1 { color:#fff; font-size:clamp(46px,6.5vw,82px); max-width:760px; margin:0 0 18px; }
     .hero-copy .hero-sub { color:rgba(255,255,255,.86); font-size:15px; max-width:440px; margin:0 0 22px; }
     .hero-copy .cta-primary { color:var(--blue-dark); background:#fff; }
     .hero-copy .text-link { color:#fff; }
-    @media (max-width:760px) { .ed-nav { margin:0 0 12px; } .nav-links { display:none; } .hero { margin:0; min-height:560px; } .hero-copy { padding:28px 24px 30px; } .hero-copy h1 { font-size:49px; } }
+    @media (max-width:760px) { .ed-nav { margin:0 0 12px; } .nav-links { display:none; } .hero { margin:0; height:560px; } .hero-copy { padding:28px 24px 30px; } .hero-copy h1 { font-size:49px; } }
     </style>
     """, unsafe_allow_html=True)
 
 
 def render_nav() -> None:
-    st.markdown(f'<nav class="ed-nav"><a class="brand" href="#top"><span class="brand-mark">✦</span><span>EdgeDash</span></a><div class="nav-links"><a href="#features">Features</a><a href="{DASHBOARD_URL}">Dashboard</a><a href="#how">How it works</a><a href="#features">About</a><a href="https://github.com/koustavdatascience/edgedash" target="_blank" rel="noreferrer">GitHub</a></div><a class="nav-install" href="{DASHBOARD_URL}">Open dashboard</a></nav>', unsafe_allow_html=True)
+    st.markdown(f'<nav class="ed-nav"><a class="brand" href="#top"><span class="brand-mark">→</span><span>edgedash</span></a><div class="nav-links"><a href="#features">Features</a><a href="{DASHBOARD_URL}">Dashboard</a><a href="#how">How it works</a><a href="#features">About</a><a href="https://github.com/koustavdatascience/edgedash" target="_blank" rel="noreferrer">GitHub</a></div><a class="nav-install" href="{DASHBOARD_URL}">Open dashboard</a></nav>', unsafe_allow_html=True)
 
 
 def render_hero() -> None:
