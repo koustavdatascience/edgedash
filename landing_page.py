@@ -82,10 +82,14 @@ def render_nav() -> None:
     with left:
         st.markdown('<div class="ed-nav"><a class="brand" href="#top"><span class="brand-mark">✦</span><span>EdgeDash</span></a></div>', unsafe_allow_html=True)
     with right:
-        with st.popover("☰", use_container_width=True):
-            st.markdown('<a href="?page=docs" target="_self">Documentation</a>', unsafe_allow_html=True)
-            st.markdown(f'<a href="{DASHBOARD_URL}">Dashboard</a>', unsafe_allow_html=True)
-            st.markdown('<a href="https://github.com/koustavdatascience/edgedash" target="_blank" rel="noreferrer">GitHub</a>', unsafe_allow_html=True)
+        if "menu_open" not in st.session_state:
+            st.session_state.menu_open = False
+        if st.button("☰", key="menu_toggle", use_container_width=True):
+            st.session_state.menu_open = not st.session_state.menu_open
+        if st.session_state.menu_open:
+            st.link_button("Documentation", "?page=docs", use_container_width=True)
+            st.link_button("Dashboard", DASHBOARD_URL, use_container_width=True)
+            st.link_button("GitHub", "https://github.com/koustavdatascience/edgedash", use_container_width=True)
 
 
 def render_hero() -> None:
