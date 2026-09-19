@@ -10,10 +10,12 @@ ROOT = Path(__file__).parent
 DASHBOARD_URL = "https://edgedash-project.streamlit.app/~/+/?view=dashboard"
 
 
+@st.cache_data(show_spinner=False)
 def img_data(path: Path) -> str:
     return "data:image/webp;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_live_data() -> dict[str, Any]:
     demo = {"listings": 128, "scored": 42, "gaps": 7, "last_run": "Today, 06:04", "jobs": [("Product Data Analyst", "Northstar Labs", 94), ("Growth Analyst", "Loopline", 89), ("Business Intelligence Analyst", "Aster & Co.", 84), ("Data Operations Lead", "Morrow", 81)]}
     try:
@@ -22,7 +24,7 @@ def load_live_data() -> dict[str, Any]:
         from edgedash.verified import last_passing_cycle, verified_listings
         config = load_config(); storage = get_storage_module(config); cycle = last_passing_cycle(storage)
         if not cycle: return demo
-        rows = verified_listings(storage, cycle, limit=5000)
+        rows = verified_listings(storage, cycle, limit=500)
         scored = sorted([r for r in rows if r.get("fit_score") is not None], key=lambda r: int(r.get("fit_score") or 0), reverse=True)
         stats = storage.get_stats()
         return {"listings": int(stats.get("total_listings", len(rows))), "scored": len(scored), "gaps": len(storage.get_skill_gaps()), "last_run": "Verified just now", "jobs": [(r.get("title", "Untitled role"), r.get("company", "Unknown company"), int(r.get("fit_score") or 0)) for r in scored[:4]] or demo["jobs"]}
