@@ -78,7 +78,14 @@ def inject_css() -> None:
 
 
 def render_nav() -> None:
-    st.markdown(f'<nav class="ed-nav"><a class="brand" href="#top"><span class="brand-mark">✦</span><span>EdgeDash</span></a><details class="menu-wrap"><summary aria-label="Open menu"><span class="hamburger"></span></summary><div class="menu-pop"><a href="?page=docs">Documentation</a><a href="{DASHBOARD_URL}">Dashboard</a><a href="https://github.com/koustavdatascience/edgedash" target="_blank" rel="noreferrer">GitHub</a></div></details></nav>', unsafe_allow_html=True)
+    left, right = st.columns([8, 1], gap="small", vertical_alignment="center")
+    with left:
+        st.markdown('<div class="ed-nav"><a class="brand" href="#top"><span class="brand-mark">✦</span><span>EdgeDash</span></a></div>', unsafe_allow_html=True)
+    with right:
+        with st.popover("☰", use_container_width=True):
+            st.markdown('<a href="?page=docs" target="_self">Documentation</a>', unsafe_allow_html=True)
+            st.markdown(f'<a href="{DASHBOARD_URL}">Dashboard</a>', unsafe_allow_html=True)
+            st.markdown('<a href="https://github.com/koustavdatascience/edgedash" target="_blank" rel="noreferrer">GitHub</a>', unsafe_allow_html=True)
 
 
 def render_hero() -> None:
