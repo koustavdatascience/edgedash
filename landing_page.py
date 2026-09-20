@@ -68,11 +68,11 @@ def inject_css() -> None:
     .hero-img { position:absolute; top:0; right:0; bottom:0; left:0; display:block; width:100%; height:100%; min-width:0; min-height:0; object-fit:cover; filter:none; object-position:center; }
     .hero-copy { position:relative; z-index:1; width:100%; max-width:none; padding:42px 44px 46px; color:#fff; }
     .hero-copy .eyebrow { color:#d6e5ff; display:block; }
-    .hero-copy h1 { color:#fff; font-size:clamp(46px,6.5vw,82px); max-width:760px; margin:0 0 18px; }
+    .hero-copy h1 { color:#fff; font-size:clamp(34px,5vw,58px); max-width:680px; margin:0 0 18px; }
     .hero-copy .hero-sub { color:rgba(255,255,255,.86); font-size:15px; max-width:440px; margin:0 0 22px; }
     .hero-copy .cta-primary { color:var(--blue-dark); background:#fff; }
     .hero-copy .text-link { color:#fff; }
-    @media (max-width:760px) { .ed-nav { margin:0 0 12px; } .nav-links { display:none; } .hero { margin:0; height:560px; } .hero-copy { padding:28px 24px 30px; } .hero-copy h1 { font-size:49px; } }
+    @media (max-width:760px) { .ed-nav { margin:0 0 12px; } .nav-links { display:none; } .hero { margin:0; height:560px; } .hero-copy { padding:28px 24px 30px; } .hero-copy h1 { font-size:39px; } }
     </style>
     """, unsafe_allow_html=True)
 
@@ -83,7 +83,7 @@ def render_nav() -> None:
 
 def render_hero() -> None:
     hero = img_data(ROOT / "assets" / "hero.webp")
-    st.markdown(f'<section class="hero" id="top"><img class="hero-img" src="{hero}" loading="eager" alt="A lighthouse standing alone in open water"/><div class="status"><i></i>AGENT ACTIVE · DAILY RUN</div><div class="hero-copy"><div class="eyebrow">Your next job, found daily</div><h1>An AI agent that finds<br/>your next job, every day.</h1><p class="hero-sub">EdgeDash finds job matches and shows you what to learn next.</p><div class="reference-hero-actions"><a class="cta cta-primary" href="{DASHBOARD_URL}">View live dashboard&nbsp; ↗</a><a class="text-link" href="#how">How it works</a></div></div></section>', unsafe_allow_html=True)
+    st.markdown(f'<section class="hero" id="top"><img class="hero-img" src="{hero}" loading="eager" alt="A lighthouse standing alone in open water"/><div class="status"><i></i>AGENT ACTIVE · DAILY RUN</div><div class="hero-copy"><div class="eyebrow">Your next job, found daily</div><h1>An AI agent that finds<br/>your next job, every day.</h1><p class="hero-sub">EdgeDash finds job matches and shows you what to learn next.</p><div class="reference-hero-actions"><a class="text-link" href="#how">How it works</a></div></div></section>', unsafe_allow_html=True)
 
 
 def render_signals() -> None:
