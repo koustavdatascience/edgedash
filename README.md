@@ -1,100 +1,149 @@
 # EdgeDash
 
-EdgeDash is an autonomous AI career intelligence loop that continuously fetches live job listings, scores them for fit against your target career profile, surfaces market skill gaps, and verifies pipeline plausibility. It publishes a read-only Streamlit dashboard powered by persistent storage, keeping your job market intelligence up-to-date automatically.
+> Autonomous career intelligence for evidence-driven job searches.
+
+**Live application:** [edgedash007.streamlit.app](https://edgedash007.streamlit.app/)
+
+**Repository:** [github.com/koustavdatascience/edgedash](https://github.com/koustavdatascience/edgedash)
+
+EdgeDash is a continuously running career-intelligence pipeline. It fetches live job listings, extracts structured requirements, scores each role against a configurable career profile, identifies high-value skill gaps, and verifies the resulting data before it reaches the dashboard. The application is designed to make job-market research more consistent, explainable, and actionable.
+
+## Highlights
+
+- **Live job intelligence:** Fetches listings from supported sources and keeps the local or hosted database current.
+- **Explainable matching:** Produces deterministic fit scores from structured facts rather than asking a language model to invent a final rating.
+- **Skill-gap analysis:** Connects missing skills to real listings and preserves timestamped snapshots for trend analysis.
+- **Verified outputs:** Runs plausibility checks and allows at most one controlled retry when a verification check fails.
+- **Safe natural-language queries:** Uses a fixed registry of typed, parameterised query tools; the language model never generates SQL.
+- **Flexible storage:** Uses SQLite by default and supports PostgreSQL for hosted deployments.
+- **Automated execution:** Runs on a daily GitHub Actions schedule or through the local scheduler.
 
 ## Architecture
 
+```text
+Scheduled trigger
+      ↓
+Orchestrator → Fetcher → Extractor → Scorer
+      ↓                         ↓
+  Gap analyzer ← Verifier ← Storage
+      ↓
+Read-only Streamlit dashboard
 ```
-Trigger → Orchestrator → sub-agents → Verifier → storage → dashboard
-```
 
-- **Trigger**: Starts execution on a schedule (GitHub Actions daily cron or local scheduler) or via manual dispatch.
-- **Orchestrator**: Reads system state (`SystemState`), builds a dynamic execution plan, delegates work to sub-agents, and logs cycle summary metrics. It never fetches or scores directly.
-- **Sub-agents**: Focused execution units (`Fetcher`, `Scorer`, `GapAnalyzer`, `Extractor`) with single goals and explicit stop conditions.
-- **Verifier**: Asserts output plausibility across score distributions, extraction sanity, gap sample sizes, and data freshness.
-- **Storage**: Unified database abstraction layer supporting SQLite and PostgreSQL.
-- **Dashboard**: Read-only Streamlit view displaying verified market insights, live health status, and cycle logs.
+The orchestrator reads system state, creates an execution plan, delegates work to focused agents, records cycle metrics, and coordinates verification. The dashboard reads only verified data and does not run collection or scoring cycles.
 
-## Why Key Design Decisions Were Made
+## Repository layout
 
-- **Storage Behind One Module**: All storage logic is encapsulated behind a single interface (`edgedash/storage_factory.py`). Business logic and agents never import `sqlite3` or `psycopg2` directly. This enables a zero-friction, one-file swap between local SQLite and hosted PostgreSQL without changing a single line of agent code.
-- **No Model-Generated SQL**: The natural language query engine (`edgedash/query/`) prohibits text-to-SQL. Allowing LLMs to compose raw SQL introduces severe prompt injection vectors, non-deterministic database mutations, and silent query failures. Instead, the model acts strictly as a router selecting from a fixed registry of parameterised, typed query functions written in Python.
-- **The Verifier Cannot Repair**: The `Verifier` evaluates output plausibility and emits a pass/fail verdict with explicit reasons—it *never* rewrites, repairs, or mutates data. Allowing a validator to auto-correct outputs introduces synthetic, unverified state corruption. If verification fails, the Orchestrator executes at most one controlled retry before marking the cycle degraded.
-- **Deterministic Scoring**: Models extract structured facts (skills, seniority, years of experience); scoring arithmetic is 100% deterministic Python. Asking LLMs to output final numerical scores leads to score inflation, hallucinated ratings, and non-reproducible rankings. Separating fact extraction from scoring keeps fit evaluation auditable, transparent, and reproducible.
+| Path | Purpose |
+| --- | --- |
+| `dashboard.py` | Streamlit dashboard entry point |
+| `run_cycle.py` | Execute one orchestration cycle |
+| `run_scheduler.py` | Run the local scheduled worker |
+| `edgedash/agents/` | Fetching, extraction, scoring, gap analysis, and verification agents |
+| `edgedash/storage.py` | SQLite storage implementation |
+| `edgedash/storage_postgres.py` | PostgreSQL storage implementation |
+| `edgedash/query/` | Safe, read-only natural-language query tools |
+| `tests/` | Automated test suite |
+| `.github/workflows/cycle.yml` | Daily and manually triggered GitHub Actions workflow |
+| `config.yaml` | Career profile, source, scoring, and verification configuration |
+| `landing/` | Optional TypeScript landing-page application |
 
-## Known Limitations
+## Getting started
 
-- **Cross-Source Duplicates**: Deduplication relies on a SHA-256 hash of `source + url`. While this reliably prevents duplicate ingestion from the same source, identical job postings listed on multiple distinct job boards will be ingested as separate listings.
-- **Extraction Misses**: Fact extraction depends on LLM parsing of unstructured text. Non-standard job description layouts or heavy jargon can occasionally lead to omitted required or nice-to-have skills.
-- **Thin Trend Data**: Gap analysis snapshots build longitudinal trend insights over time. On fresh installations or early cycles, skill gap metrics reflect a limited sample size until multiple cycles accumulate historical data.
+### Prerequisites
 
----
+- Python 3.11 or newer
+- A supported LLM provider and API key for extraction and query phrasing
+- PostgreSQL only when using the hosted database backend
 
-## Quickstart & Usage
-
-### 1. Prerequisites & Installation
-
-**Python:** 3.11 or newer.
+### Installation
 
 ```bash
 git clone https://github.com/koustavdatascience/edgedash.git
 cd edgedash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment & Profile
+### Configuration
 
-Copy `.env.example` to `.env` and set your LLM API credentials:
+Create a local environment file and set the provider credentials:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your API key:
+For Gemini, configure the following values in `.env`:
+
 ```env
 LLM_PROVIDER=gemini
-GEMINI_API_KEY=your_actual_api_key_here
+GEMINI_API_KEY=your_api_key
 LLM_MODEL=gemini-1.5-flash
 ```
 
-Customize target role, keywords, skills, and thresholds in `config.yaml`. All user profile settings live in `config.yaml`; no profile values are hardcoded.
+Then customize `config.yaml` with the target role, keywords, skills, scoring weights, thresholds, and database backend. Secrets belong in `.env` or the deployment provider's secret manager and must not be committed.
 
-### 3. Run a Manual Cycle
+## Usage
+
+Run one cycle:
 
 ```bash
 python run_cycle.py
 ```
 
-Options:
-- `python run_cycle.py --dry-run`: Inspect state and execution plan without making state writes or API calls.
-- `python run_cycle.py --force scorer`: Force specific sub-agents to run.
-- `python run_cycle.py --explain`: Display detailed decision trace for each state variable.
-
-### 4. Health Check
-
-Run the system health check CLI (read-only):
+Useful options:
 
 ```bash
-python -m edgedash.health
+python run_cycle.py --dry-run       # inspect the plan without API calls or writes
+python run_cycle.py --force scorer  # force a selected agent to run
+python run_cycle.py --explain       # print the state decision trace
 ```
 
-Evaluates database connectivity, listing freshness ($\le 3$ days), cycle age ($\le 48$ hours), and verification failure trends. Exits `0` if healthy, `1` if unhealthy.
-
-### 5. Launch Dashboard
+Launch the dashboard locally:
 
 ```bash
 streamlit run dashboard.py
 ```
 
-Features:
-- Live health status indicator bar (`🟢 Live`, `🟡 Stale`, `🔴 Critical`)
-- Top scored job matches & market skill gaps
-- Complete agent activity log
-- Natural language query interface (powered by parameterised tools)
+Run the read-only health check:
 
-### 6. Automated Scheduled Execution (GitHub Actions)
+```bash
+python -m edgedash.health
+```
 
-A GitHub Actions workflow is provided in `.github/workflows/cycle.yml`:
-- **Schedule**: Daily at `06:00 IST` (`00:30 UTC`).
-- **Manual Trigger**: Supports `workflow_dispatch` via GitHub Web UI or CLI (`gh workflow run cycle.yml`).
-- **CI Safety**: Executes migrations, runs the cycle with a 10-minute timeout, uploads `cycle.log` artifacts, and executes the system health check as a final step.
+Run the test suite:
+
+```bash
+python -m pytest tests/ -q
+```
+
+## Automation
+
+The workflow in `.github/workflows/cycle.yml` runs the pipeline daily at **00:30 UTC (06:00 IST)** and can also be started manually with GitHub Actions. It performs database setup, executes the cycle, uploads the cycle log, and runs the health check.
+
+For local automation:
+
+```bash
+python run_scheduler.py
+```
+
+## Design principles
+
+- **Deterministic scoring:** Language models extract facts; Python performs the scoring arithmetic.
+- **Verification without repair:** The verifier reports plausibility failures but never silently rewrites data.
+- **Verified data only:** Failed cycles cannot replace the last known-good dashboard state.
+- **No model-generated SQL:** Query routing selects from a fixed set of safe, parameterised functions.
+- **Auditable aggregates:** Skill-gap metrics retain their source listing IDs and sample sizes.
+
+## Known limitations
+
+Cross-source duplicate detection currently hashes the source and URL, so the same role listed on multiple job boards may appear more than once. Requirement extraction can miss skills when a job description uses unusual terminology or formatting. Trend analysis is also less informative during the first few cycles because it needs historical snapshots.
+
+## Security notes
+
+Never commit `.env`, database credentials, API keys, or generated database files. The natural-language query layer is intentionally read-only and parameterised. Review workflow permissions and deployment secrets before enabling the scheduled job on a fork.
+
+## License
+
+This project does not currently declare a license. Add a license file before distributing or reusing the code outside the repository.

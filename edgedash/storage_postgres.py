@@ -209,6 +209,24 @@ def last_fetch_time() -> str | None:
             return result[0] if result and result[0] else None
 
 
+def last_scored_at() -> str | None:
+    """Get the most recent score timestamp."""
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT MAX(scored_at) FROM listings WHERE fit_score IS NOT NULL")
+            result = cur.fetchone()
+            return result[0] if result and result[0] else None
+
+
+def last_gap_snapshot_at() -> str | None:
+    """Get the most recent gap snapshot timestamp."""
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT MAX(computed_at) FROM gap_snapshots")
+            result = cur.fetchone()
+            return result[0] if result and result[0] else None
+
+
 def log_cycle(
     agent: str,
     started_at: str,
