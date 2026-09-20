@@ -447,15 +447,15 @@ def _render_header(db_path: str) -> None:
             "Stale verified data is shown rather than fresh unverified data (rule 38)."
         )
 
-    priority_gaps = _load_gaps(db_path, limit=3)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Verified listings", stats.get("total_listings", 0))
-    c2.metric("Scored matches", stats.get("scored_listings", 0))
-    c3.metric("Priority skill gaps", len(priority_gaps))
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Last Verified Cycle", _fmt_ts(data_ts))
+    c2.metric("Total Listings", stats.get("total_listings", 0))
+    c3.metric("Scored", stats.get("scored_listings", 0))
+    c4.metric("Unscored", stats.get("unscored_listings", 0))
 
-    verdict_label = "Pass" if current_verdict in ("ok", "complete", "pass", "nothing_to_do") \
-                    else ("Needs attention" if current_verdict in ("failed", "fail", "degraded") else "Pending")
-    st.caption(f"Verified {_age_str(data_ts) or _fmt_ts(data_ts)} · Pipeline: {verdict_label}")
+    verdict_label = "✅ pass" if current_verdict in ("ok", "complete", "pass", "nothing_to_do") \
+                    else ("❌ fail" if current_verdict in ("failed", "fail", "degraded") else "—")
+    c5.metric("Current Verdict", verdict_label)
 
 
 def _render_activity_panel(db_path: str, config: Any) -> None:
