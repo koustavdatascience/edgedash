@@ -88,12 +88,12 @@ def _render_sidebar() -> None:
         st.markdown('<div class="ed-side-card"><strong>Verified workspace</strong><br><small>Shared public dashboard</small></div>', unsafe_allow_html=True)
         st.markdown('<div class="ed-side-label">Workspace</div>', unsafe_allow_html=True)
         st.markdown("**▣  Overview**")
-        st.markdown("▤  Listings")
+        st.markdown("▤  Jobs")
         st.markdown("◒  Skill gaps")
-        st.markdown("◷  Activity log")
+        st.markdown("◷  Runs")
         st.markdown('<div class="ed-side-label">Tools</div>', unsafe_allow_html=True)
-        st.markdown("✦  Ask Your Data")
-        st.markdown("ⓘ  About EdgeDash")
+        st.markdown("✦  Ask EdgeDash")
+        st.markdown("ⓘ  About")
         st.markdown('<div style="height:10vh"></div>', unsafe_allow_html=True)
         st.markdown('<div class="ed-side-label">Links</div>', unsafe_allow_html=True)
         st.markdown("[Source on GitHub](%s)" % REPO_URL)
@@ -390,14 +390,14 @@ def main() -> None:
     st.divider()
 
     # -----------------------------------------------------------------------
-    # 1. AGENT ACTIVITY LOG
+    # 1. LATEST RUN SUMMARY
     # -----------------------------------------------------------------------
     _panel("activity_log", lambda: _render_activity_panel(db_path, config))
 
     st.divider()
 
     # -----------------------------------------------------------------------
-    # 2. TOP SCORED LISTINGS  +  3. TOP SKILL GAPS
+    # 2. TOP RECOMMENDATIONS  +  3. PRIORITY SKILL GAPS
     # -----------------------------------------------------------------------
     col_listings, col_gaps = st.columns([3, 2])
     with col_listings:
@@ -447,51 +447,61 @@ def _render_header(db_path: str) -> None:
             "Stale verified data is shown rather than fresh unverified data (rule 38)."
         )
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Last Verified Cycle", _fmt_ts(data_ts))
-    c2.metric("Total Listings", stats.get("total_listings", 0))
-    c3.metric("Scored", stats.get("scored_listings", 0))
-    c4.metric("Unscored", stats.get("unscored_listings", 0))
+    priority_gaps = _load_gaps(db_path, limit=3)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Verified listings", stats.get("total_listings", 0))
+    c2.metric("Scored matches", stats.get("scored_listings", 0))
+    c3.metric("Priority skill gaps", len(priority_gaps))
 
-    verdict_label = "✅ pass" if current_verdict in ("ok", "complete", "pass", "nothing_to_do") \
-                    else ("❌ fail" if current_verdict in ("failed", "fail", "degraded") else "—")
-    c5.metric("Current Verdict", verdict_label)
+    verdict_label = "Pass" if current_verdict in ("ok", "complete", "pass", "nothing_to_do") \
+                    else ("Needs attention" if current_verdict in ("failed", "fail", "degraded") else "Pending")
+    st.caption(f"Verified {_age_str(data_ts) or _fmt_ts(data_ts)} · Pipeline: {verdict_label}")
 
 
 def _render_activity_panel(db_path: str, config: Any) -> None:
-    st.subheader("Agent Activity Log")
-    st.markdown('<div class="ed-section-note">Every run, including failures and degraded cycles — newest first.</div>', unsafe_allow_html=True)
+    st.subheader("Latest run")
+    st.markdown('<div class="ed-section-note">The verified snapshot behind the recommendations below.</div>', unsafe_allow_html=True)
 
     cycle_log = _load_cycle_log(db_path, limit=30)
     if not cycle_log:
         nxt = _next_run_datetime(config)
-        when = f"**{_fmt_ts(nxt)}**" if nxt else "as scheduled"
-        st.info(
-            f"No cycles yet — the first run is scheduled for {when}. "
-            "The dashboard will populate automatically after it completes."
-        )
+        when = _fmt_ts(nxt) if nxt else "as scheduled"
+        st.info(f"No verified run yet. First run: {when}.")
         return
-    _render_activity_log(cycle_log)
+
+    latest = cycle_log[0]
+    ts = latest.get("finished_at") or latest.get("started_at", "")
+    status = latest.get("status", "")
+    notes = latest.get("notes", "")
+    parsed = _parse_cycle_notes(notes)
+    outcome = parsed.get("outcome", status)
+    verdict = "Pass" if "VERDICT: pass" in notes or outcome in ("complete", "nothing_to_do") else ("Needs attention" if outcome in ("failed", "degraded") else "In progress")
+    ran = parsed.get("ran", "")
+    icon = _row_style(status)
+    st.markdown(f"{icon} **{verdict}** · {_age_str(ts) or _fmt_ts(ts)}")
+    st.caption(f"{ran or 'Latest verified cycle'} · {_fmt_ts(ts)}")
+    with st.expander("View run history"):
+        _render_activity_log(cycle_log)
 
 
 def _render_listings_panel(db_path: str, config: Any) -> None:
-    st.subheader("Top 10 Scored Listings")
-    st.markdown('<div class="ed-section-note">Highest-fit opportunities from the latest verified cycle.</div>', unsafe_allow_html=True)
+    st.subheader("Best matches")
+    st.markdown('<div class="ed-section-note">The three highest-fit roles from the latest verified cycle.</div>', unsafe_allow_html=True)
     last_passing = _load_last_passing_cycle(db_path)
     if not last_passing:
         _empty_state_caption(config)
         return
-    _render_listings(_load_listings(db_path, limit=10, min_score=0))
+    _render_listings(_load_listings(db_path, limit=3, min_score=0))
 
 
 def _render_gaps_panel(db_path: str, config: Any) -> None:
-    st.subheader("Top 10 Skill Gaps")
-    st.markdown('<div class="ed-section-note">Skills creating the largest opportunity cost.</div>', unsafe_allow_html=True)
+    st.subheader("Priority skill gaps")
+    st.markdown('<div class="ed-section-note">The three gaps blocking the most opportunities.</div>', unsafe_allow_html=True)
     last_passing = _load_last_passing_cycle(db_path)
     if not last_passing:
         _empty_state_caption(config)
         return
-    gaps = _load_gaps(db_path, limit=10)
+    gaps = _load_gaps(db_path, limit=3)
     _render_gap_chart(gaps)
     _render_gaps(gaps)
 
@@ -503,9 +513,8 @@ def _empty_state_caption(config: Any) -> None:
 
 
 _ASK_EXAMPLES = [
-    "Show me the best matches",
-    "How many companies are hiring",
-    "What skills are in demand for Python",
+    "Show my best matches",
+    "What skills are most in demand?",
 ]
 
 
@@ -517,8 +526,8 @@ def _render_ask_section(config: Any) -> None:
     """
     from edgedash.query.ask import ask, Answer, _daily_cap_exceeded
 
-    st.subheader("Ask Your Data")
-    st.markdown('<div class="ed-section-note">Ask in plain English. Answers use only the last verified cycle and show the supporting rows.</div>', unsafe_allow_html=True)
+    st.subheader("Ask EdgeDash")
+    st.markdown('<div class="ed-section-note">Ask about the latest verified results.</div>', unsafe_allow_html=True)
 
     if _daily_cap_exceeded(config):
         cap = getattr(config, "daily_question_cap", 200)
@@ -535,7 +544,7 @@ def _render_ask_section(config: Any) -> None:
             clicked = example
 
     question = st.text_input(
-        "Enter your question:",
+        "Ask a question",
         value=clicked or st.session_state.get("last_question", ""),
         placeholder="e.g. Show me the best matches",
     )
@@ -578,11 +587,8 @@ def _render_footer(db_path: str | None) -> None:
             scoring, and verifying job listings. It collects listings, evaluates their fit,
             analyzes skill gaps, and stores only the latest verified results for the dashboard.
 
-            Visitors can browse the shared listings and ask questions through **Ask Your Data**.
-            The public dashboard is read-only: visitors cannot change the configured skills,
-            scoring rules, listings, or Supabase data. Anyone who wants a personalized version
-            can fork the source code, connect their own Supabase project and API keys, and
-            deploy an independent copy.
+            Browse verified job matches, review skill gaps, and ask questions about the latest cycle.
+            This public dashboard is read-only; personalized deployments can be created from the source repository.
 
             **Project links:** [GitHub repository](https://github.com/koustavdatascience/edgedash) ·
             [Koustav’s GitHub profile](https://github.com/koustavdatascience)
