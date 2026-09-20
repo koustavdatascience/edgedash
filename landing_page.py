@@ -65,7 +65,7 @@ def inject_css() -> None:
     .brand-mark { color:#fff; background:#171717; }
     .hero { position:relative; overflow:hidden; margin:0; height:min(68vh,620px); min-height:0; flex-direction:column; border-radius:20px; box-shadow:0 20px 60px rgba(16,24,40,.12); display:flex; justify-content:flex-end; background:#0e1b35; }
     .hero:after { display:block; background:linear-gradient(180deg,rgba(7,29,64,.05) 22%,rgba(7,24,52,.84) 100%); }
-    .hero-img { position:absolute; top:0; right:0; bottom:0; left:0; display:block; width:100%; height:100%; min-width:0; min-height:0; object-fit:cover; filter:none; object-position:center; }
+    .hero-img { position:absolute !important; inset:0 !important; display:block !important; width:100% !important; height:100% !important; min-width:0; min-height:0; object-fit:cover; filter:none; object-position:center; }
     .hero-copy { position:relative; z-index:1; width:100%; max-width:none; margin-top:auto; padding:42px 44px 46px; color:#fff; }
     .hero-copy .eyebrow { color:#d6e5ff; display:block; }
     .hero-copy h1 { color:#fff; font-size:clamp(34px,5vw,58px); max-width:680px; margin:0 0 18px; letter-spacing:-.06em; }
@@ -83,7 +83,7 @@ def render_nav() -> None:
 
 def render_hero() -> None:
     hero = img_data(ROOT / "assets" / "hero.webp")
-    st.markdown(f'<section class="hero" id="top"><img class="hero-img" src="{hero}" loading="eager" alt="A lighthouse standing alone in open water"/><div class="status"><i></i>AGENT ACTIVE · DAILY RUN</div><div class="hero-copy"><div class="eyebrow">Your next job, found daily</div><h1>An AI agent that finds<br/>your next job, every day.</h1><p class="hero-sub">EdgeDash finds job matches and shows you what to learn next.</p></div></section>', unsafe_allow_html=True)
+    st.markdown(f'<section class="hero" id="top"><img class="hero-img" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" src="{hero}" loading="eager" alt="A lighthouse standing alone in open water"/><div class="status"><i></i>AGENT ACTIVE · DAILY RUN</div><div class="hero-copy"><div class="eyebrow">Your next job, found daily</div><h1>An AI agent that finds<br/>your next job, every day.</h1><p class="hero-sub">EdgeDash finds job matches and shows you what to learn next.</p></div></section>', unsafe_allow_html=True)
 
 
 def render_signals() -> None:
