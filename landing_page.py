@@ -98,7 +98,7 @@ def render_how() -> None:
 
 
 def render_proof(data: dict[str, Any]) -> None:
-    proof = img_data(ROOT / "assets" / "live-proof-cropped.webp")
+    proof = img_data(ROOT / "assets" / "live-proof-dashboard.webp")
     st.markdown(f'<section class="section" id="proof"><div class="reference-proof"><div class="reference-proof-copy"><div class="section-label">Live proof</div><h2>See it<br/><em>in action.</em></h2><p>See today’s job matches and skill gaps in the live dashboard.</p><a class="reference-link" href="{DASHBOARD_URL}">Open the live workspace&nbsp; ↗</a></div><div><img class="proof-image" src="{proof}" loading="lazy" alt="EdgeDash live dashboard showing verified job matches and skill gaps"/></div></div><div style="display:flex;justify-content:space-between;gap:20px;margin-top:14px;color:var(--muted);font:10px DM Mono,monospace"><span>● LIVE DASHBOARD, UPDATED DAILY</span><span>READ-ONLY</span></div></section>', unsafe_allow_html=True)
 
 
