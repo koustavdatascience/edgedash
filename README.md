@@ -2,7 +2,7 @@
 
 > Autonomous career intelligence for evidence-driven job searches.
 
-**Live application:** [edgedash007.streamlit.app](https://edgedash007.streamlit.app/)
+**Live application:** [edgedash-project.streamlit.app](https://edgedash-project.streamlit.app/)
 
 **Repository:** [github.com/koustavdatascience/edgedash](https://github.com/koustavdatascience/edgedash)
 
