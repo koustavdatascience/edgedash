@@ -293,16 +293,18 @@ def _load_streamlit_secrets() -> None:
 def _db_status(config: Any) -> str:
     """Return 'ok' | 'missing' | 'unreachable' for the active deploy.
 
-    Local dev (EDGEDASH_ENV != production) falls back to SQLite and is always
-    'ok'. In production the hosted database is required (rule 47).
+    The configured backend is the source of truth. A DATABASE_URL always
+    selects Postgres, while an explicit SQLite configuration remains valid in
+    production as well. This matters for Streamlit deployments where the app
+    can be started before hosted database secrets are provisioned.
     """
-    if os.environ.get("EDGEDASH_ENV", "dev") != "production":
+    if os.environ.get("DATABASE_URL"):
         return "ok"
-    if not os.environ.get("DATABASE_URL"):
+    if getattr(config, "db_backend", "sqlite").lower() == "sqlite":
+        return "ok"
+    if os.environ.get("EDGEDASH_ENV", "dev") == "production":
         return "missing"
-    # Presence of a URL means configuration is available; _init_storage then
-    # performs the real connection and converts any failure to "unreachable".
-    return "ok"
+    return "missing"
 
 
 def _init_storage() -> tuple[str, Any, Any | None]:
